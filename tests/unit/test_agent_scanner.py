@@ -113,3 +113,63 @@ def test_financial_transaction_plus_database_attack_path():
     ]})
     result = scan_agent_config(path)
     assert any("fraud" in p.title.lower() or "transaction" in p.title.lower() for p in result.attack_paths)
+
+
+def test_dify_dsl_export_tools_detected():
+    """
+    No-code platforms (Dify, similar visual builders) export workflow
+    config as YAML with tools nested under model_config.agent_mode.tools,
+    using 'tool_name'/'provider_id' instead of 'name'/'description'.
+    """
+    path = write_config({
+        "app": {"name": "support agent", "mode": "agent-chat"},
+        "model_config": {
+            "agent_mode": {
+                "enabled": True,
+                "tools": [
+                    {"tool_name": "execute_shell_command", "provider_id": "code_interpreter", "provider_type": "builtin"},
+                    {"tool_name": "get_secret_from_vault", "provider_id": "vault_connector", "provider_type": "api"},
+                ],
+            }
+        },
+    })
+    result = scan_agent_config(path)
+    critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
+    assert len(critical) >= 2
+    assert any("execute_shell_command" in f.title for f in critical)
+    assert any("get_secret_from_vault" in f.title for f in critical)
+
+
+def test_recursive_fallback_ignores_unrelated_nested_lists():
+    """The generic nested-structure fallback must not false-positive on
+    arbitrary nested config (e.g. a user list) that isn't tool-shaped."""
+    path = write_config({
+        "app": {
+            "settings": {
+                "users": [
+                    {"name": "alice", "id": "u1", "role": "admin"},
+                    {"name": "bob", "id": "u2", "role": "viewer"},
+                ]
+            }
+        }
+    })
+    result = scan_agent_config(path)
+    assert result.metadata.get("tool_count", 0) == 0
+    assert result.risk_score() == 0
+
+
+def test_recursive_fallback_finds_deeply_nested_tools():
+    """Generic fallback should find tool-shaped lists even without
+    Dify-specific key names, as long as they look like tool definitions."""
+    path = write_config({
+        "workflow": {
+            "config": {
+                "actions": [
+                    {"name": "run_command", "description": "Execute a shell command on the server"},
+                ]
+            }
+        }
+    })
+    result = scan_agent_config(path)
+    critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
+    assert critical

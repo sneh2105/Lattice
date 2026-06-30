@@ -19,14 +19,19 @@ it shows you the complete chain from a malicious prompt to a stolen credential.
 
 ✅ LangChain · ✅ LangGraph · ✅ CrewAI · ✅ AutoGen · ✅ OpenAI Agents SDK ·
 ✅ Google ADK · ✅ Semantic Kernel · ✅ Amazon Bedrock Agents · ✅ Amazon Nova Act ·
-✅ MCP · ✅ **No framework at all** — raw Anthropic/OpenAI native tool schemas
+✅ MCP · ✅ No framework at all (raw Anthropic/OpenAI tool schemas) ·
+✅ No-code platform exports (Dify-style)
 
-Source code scanning (`agentscan source`) covers all of the above via AST analysis
-of `@tool` decorators, `BaseTool` subclasses, registration calls, and raw
-`TOOLS = [{"name": ..., "description": ..., "input_schema": {...}}]` schemas —
-the pattern used by companies running a custom in-house agent on the
-model provider's API directly, with no third-party SDK. MCP servers are
-scanned directly via `agentscan mcp`, live or from a manifest.
+Source code scanning (`agentscan source`) covers all of the above via AST analysis.
+Declarative config scanning (`agentscan agent`) covers YAML/JSON agent configs and
+no-code visual builder exports. MCP servers are scanned directly via `agentscan mcp`,
+live or from a manifest.
+
+**Not yet covered**: AI gateway configuration (Bifrost, TrueFoundry, Cloudflare AI
+Gateway) — these route/observe traffic but don't define agent tools themselves, so
+the application code on either side of the gateway is what AgentScan scans; the
+gateway's own governance config (virtual keys, routing rules) isn't parsed yet. See
+[`docs/ADVANCED.md`](docs/ADVANCED.md) for details.
 
 ## Try it with zero setup
 
@@ -47,7 +52,7 @@ agentscan demo
   Safe scoped search agent
   ✓ Risk 0/100  ·  0 finding(s) — no false positives
 
-  ✓ AgentScan correctly identified all 7 attack patterns with zero false positives.
+  ✓ AgentScan correctly identified all 8 attack patterns with zero false positives.
 ```
 
 `agentscan benchmark` runs the same suite in a compact pass/fail table — see
@@ -179,7 +184,7 @@ blast radius.
 ## Evaluating AgentScan
 
 ```bash
-agentscan demo                  # zero-setup: scan 7 vulnerable agents + 1 safe baseline
+agentscan demo                  # zero-setup: scan 8 vulnerable agents + 1 safe baseline
 agentscan benchmark              # same suite, compact pass/fail table for CI
 agentscan doctor ./your-repo/    # then: detects frameworks, tools, MCP servers in YOUR code
 ```

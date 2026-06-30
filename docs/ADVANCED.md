@@ -110,6 +110,25 @@ agentscan supply dataset:org/dataset-name    # scans for prompt-injection poison
 
 ---
 
+## What about AI gateways (Bifrost, TrueFoundry, Cloudflare AI Gateway)?
+
+These are infrastructure layers, not agent frameworks — they sit between
+your application and the model provider for routing, observability, and
+governance. They don't define agent tools themselves; the application
+code calling through the gateway uses whatever tool format it already
+uses (LangChain, raw API schema, etc.), which `agentscan source` and
+`agentscan agent` already cover.
+
+**What AgentScan does NOT yet do**: parse the gateway's own configuration
+(Bifrost virtual keys, routing rules, MCP server allow-lists, budget
+controls). If your security review specifically needs the *gateway's*
+governance config reviewed — not just the agent code on either side of
+it — that's currently out of scope. File an issue if this matters for
+your evaluation; it's a reasonable next addition but hasn't been built
+or tested yet, and we'd rather say so than imply coverage that isn't real.
+
+---
+
 ## Why so much surface area?
 
 This started as a focused scanner and grew into a research platform exploring what

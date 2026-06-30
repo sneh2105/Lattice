@@ -215,30 +215,91 @@ def _detect_capabilities(tool_name: str, tool_def: dict) -> set[str]:
     return detected
 
 
+def _normalise_tool_item(item) -> dict | None:
+    """Convert a tool entry from any known schema variant into {'name': ..., 'description': ...}."""
+    if isinstance(item, str):
+        return {"name": item}
+    if not isinstance(item, dict):
+        return None
+    # Try every known "name" field across formats we've seen in the wild
+    name = (
+        item.get("name") or item.get("tool_name") or item.get("provider_id")
+        or item.get("id") or item.get("function", {}).get("name") if isinstance(item.get("function"), dict) else None
+    )
+    if not name:
+        name = item.get("name") or item.get("tool_name") or item.get("provider_id") or item.get("id")
+    description = (
+        item.get("description") or item.get("tool_description")
+        or (item.get("function", {}).get("description") if isinstance(item.get("function"), dict) else "")
+        or ""
+    )
+    if not name:
+        return None
+    return {"name": str(name), "description": str(description), **item}
+
+
 def _extract_tools(config: dict) -> list[dict]:
     """
     Normalise tool lists from various agent config formats:
     - LangChain / AutoGen / CrewAI / OpenAI Assistants / custom
+    - Dify DSL exports (model_config.agent_mode.tools — no-code platform)
+    - Generic nested no-code platform exports (recursive fallback)
     """
     # Common top-level keys
     for key in ("tools", "tool_list", "capabilities", "plugins", "functions"):
         if key in config:
             raw = config[key]
             if isinstance(raw, list):
-                tools = []
-                for item in raw:
-                    if isinstance(item, str):
-                        tools.append({"name": item})
-                    elif isinstance(item, dict):
-                        tools.append(item)
-                return tools
+                tools = [_normalise_tool_item(item) for item in raw]
+                return [t for t in tools if t]
 
     # OpenAI Assistants format: {"tools": [{"type": "function", "function": {...}}]}
     if "assistant" in config and "tools" in config.get("assistant", {}):
         raw = config["assistant"]["tools"]
         return [{"name": t.get("function", {}).get("name", t.get("type", "unknown")), **t} for t in raw]
 
+    # Dify DSL export: app.mode == agent-chat, tools nested under model_config.agent_mode.tools
+    # Each entry uses 'tool_name' + 'provider_id' instead of 'name' + 'description'.
+    model_config = config.get("model_config", {})
+    agent_mode = model_config.get("agent_mode", {}) if isinstance(model_config, dict) else {}
+    if isinstance(agent_mode, dict) and "tools" in agent_mode:
+        raw = agent_mode["tools"]
+        if isinstance(raw, list):
+            tools = [_normalise_tool_item(item) for item in raw]
+            return [t for t in tools if t]
+
+    # Generic recursive fallback: search the whole config tree for any list whose
+    # items look like tool definitions (have a name-like key AND a description-like key).
+    # This catches other no-code platform export formats we haven't seen explicitly yet.
+    found = _recursive_find_tool_list(config)
+    if found:
+        tools = [_normalise_tool_item(item) for item in found]
+        return [t for t in tools if t]
+
     return []
+
+
+def _recursive_find_tool_list(node, depth: int = 0, max_depth: int = 6) -> list | None:
+    """Walk a nested dict/list structure looking for a list of tool-shaped dicts."""
+    if depth > max_depth:
+        return None
+    if isinstance(node, list):
+        if node and all(isinstance(i, dict) for i in node):
+            name_keys = {"name", "tool_name", "provider_id", "id"}
+            desc_keys = {"description", "tool_description"}
+            if any(name_keys & set(i.keys()) for i in node) and \
+               any((desc_keys & set(i.keys())) or "provider_type" in i for i in node):
+                return node
+        for item in node:
+            result = _recursive_find_tool_list(item, depth + 1, max_depth)
+            if result:
+                return result
+    elif isinstance(node, dict):
+        for value in node.values():
+            result = _recursive_find_tool_list(value, depth + 1, max_depth)
+            if result:
+                return result
+    return None
 
 
 def _check_system_prompt(config: dict) -> list[Finding]:

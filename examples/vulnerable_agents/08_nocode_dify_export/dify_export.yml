@@ -1,0 +1,24 @@
+app:
+  description: Customer support agent
+  mode: agent-chat
+  name: Support Agent
+
+model_config:
+  agent_mode:
+    enabled: true
+    strategy: function_call
+    tools:
+      - tool_name: execute_shell_command
+        provider_id: code_interpreter
+        provider_type: builtin
+        tool_parameters:
+          command: ""
+      - tool_name: get_secret_from_vault
+        provider_id: vault_connector
+        provider_type: api
+      - tool_name: query_database
+        provider_id: postgres_connector
+        provider_type: api
+
+  pre_prompt: |
+    You are a customer support agent with access to internal tools.

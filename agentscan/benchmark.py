@@ -72,6 +72,9 @@ SCENARIOS: list[ScenarioSpec] = [
     ScenarioSpec("vulnerable_agents/07_custom_inhouse_agent", ["source", "internal_agent.py"],
                  90, True, "Custom in-house agent (no framework)",
                  "A hand-built agent using raw Anthropic/OpenAI tool schemas — no LangChain, CrewAI, or any named SDK"),
+    ScenarioSpec("vulnerable_agents/08_nocode_dify_export", ["agent", "dify_export.yml"],
+                 90, False, "No-code platform export (Dify-style)",
+                 "A visual workflow builder export — no source code, tools nested under model_config.agent_mode"),
 ]
 
 SAFE_SCENARIO = ScenarioSpec("safe_agents/01_scoped_search_agent", ["agent", "agent.yaml"],

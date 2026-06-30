@@ -11,7 +11,7 @@ git clone <this repo>
 cd agentscan && pip install -e ".[dev]"
 agentscan doctor examples/vulnerable_agents/01_prompt_injection   # confirm AgentScan knows what it's looking at
 cd examples/vulnerable_agents
-python run_benchmark.py   # runs all 7 vulnerable + 1 safe scenario, checks against documented thresholds
+python run_benchmark.py   # runs all 8 vulnerable + 1 safe scenario, checks against documented thresholds
 ```
 
 Every scenario has a `README.md` documenting: the attack chain, the exact
@@ -35,7 +35,7 @@ fixtures with no live credentials, no network calls, no execution of the
 
 Most security tooling evaluations end with "what did this catch that our
 existing scanner didn't?" This kit makes that comparison concrete: run the
-same 7 vulnerable agents through AgentScan and through whatever else you're
+same 8 vulnerable agents through AgentScan and through whatever else you're
 evaluating (Semgrep, Snyk, etc.), and compare what each one surfaces.
 Generic SAST tools will flag `subprocess.run()` as a code smell; they won't
 connect "this combined with secret access forms a credential exfiltration
