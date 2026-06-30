@@ -87,6 +87,16 @@ CAPABILITY_MAP: dict[str, dict] = {
         "mitre": ["AML.T0040"],
         "cwe": [],
     },
+    "financial_transaction": {
+        "keywords": ["wire_transfer", "wire transfer", "payment", "transfer_funds",
+                      "initiate_transfer", "refund", "charge_card", "stripe", "ach_transfer",
+                      "disburse", "payout"],
+        "severity": Severity.CRITICAL,
+        "description": "Can initiate financial transactions or move money",
+        "impact": "Direct financial loss via unauthorised or injected transactions",
+        "mitre": ["AML.T0048"],
+        "cwe": ["CWE-840"],
+    },
     "code_execution": {
         "keywords": ["python_repl", "code_interpreter", "eval", "repl", "jupyter", "notebook"],
         "severity": Severity.CRITICAL,
@@ -168,6 +178,19 @@ DANGEROUS_COMBINATIONS: list[dict] = [
         "entry": "Prompt injection via user-supplied query",
         "impact": "Full database contents exfiltrated to attacker",
         "mitre": ["AML.T0051", "AML.T0040"],
+    },
+    {
+        "caps": {"financial_transaction", "database"},
+        "title": "Fraudulent transaction path",
+        "severity": Severity.CRITICAL,
+        "description": (
+            "The agent can both query records AND initiate financial transactions. "
+            "An attacker can instruct it to look up account/payment details from the "
+            "database and then trigger an unauthorised transfer using injected values."
+        ),
+        "entry": "Prompt injection via user message or malicious tool output",
+        "impact": "Direct financial loss via fraudulent or unauthorised transactions",
+        "mitre": ["AML.T0051", "AML.T0048"],
     },
 ]
 

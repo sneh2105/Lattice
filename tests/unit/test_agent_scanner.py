@@ -93,3 +93,23 @@ def test_no_false_positive_on_innocuous_tools():
     # Should only have informational / guardrail finding, no HIGH/CRITICAL
     high_critical = [f for f in result.reportable_findings if f.severity in (Severity.CRITICAL, Severity.HIGH)]
     assert not high_critical, f"Unexpected high/critical findings: {[f.title for f in high_critical]}"
+
+
+def test_financial_transaction_capability_detected():
+    """Regression: wire transfer / payment tools were previously undetected entirely."""
+    path = write_config({"tools": [
+        {"name": "initiate_wire_transfer", "description": "Initiate a wire transfer through the banking API"},
+    ]})
+    result = scan_agent_config(path)
+    critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
+    assert critical
+    assert any("financial" in f.title.lower() or "transaction" in f.title.lower() for f in critical)
+
+
+def test_financial_transaction_plus_database_attack_path():
+    path = write_config({"tools": [
+        {"name": "lookup_account", "description": "Query the customer database for account details"},
+        {"name": "wire_transfer", "description": "Initiate a wire transfer to the specified account"},
+    ]})
+    result = scan_agent_config(path)
+    assert any("fraud" in p.title.lower() or "transaction" in p.title.lower() for p in result.attack_paths)

@@ -1,0 +1,13 @@
+name: translation-assistant
+version: "1.0"
+model: claude-3-5-haiku
+system_prompt: |
+  You are a translation assistant. Translate text between languages
+  accurately, preserving tone and meaning.
+tools:
+  - name: detect_language
+    description: Detect the language of input text
+    permissions: ["read"]
+guardrails:
+  content_filter: llamaguard-2
+max_iterations: 3

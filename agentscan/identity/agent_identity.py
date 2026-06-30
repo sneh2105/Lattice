@@ -105,6 +105,7 @@ CAPABILITY_CATEGORIES = {
     "network_egress":   ("network", "Internet / External Network", "write", False),
     "database":         ("database", "Database", "read", False),
     "email_send":       ("network", "Email / SMTP", "write", False),
+    "financial_transaction": ("network", "Financial Transaction / Payment", "write", False),
     "cloud_api":        ("cloud", "Cloud Provider APIs (AWS/GCP/Azure)", "admin", False),
     "secret_access":    ("secret", "Secret Manager / Vault", "read", False),
     "memory_read":      ("memory", "Agent Memory (Read)", "read", True),
@@ -117,6 +118,7 @@ CAPABILITY_RISK = {
     "shell_exec": 40, "code_execution": 40, "secret_access": 35,
     "cloud_api": 30, "database": 25, "file_write": 20, "network_egress": 15,
     "file_read": 10, "email_send": 10, "memory_write": 8,
+    "financial_transaction": 38,
     "memory_read": 3, "vector_db": 3,
 }
 

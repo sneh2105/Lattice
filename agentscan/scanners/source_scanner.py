@@ -91,12 +91,15 @@ class ToolExtractor(ast.NodeVisitor):
     def __init__(self, source_file: str):
         self.source_file = source_file
         self.tools: list[ExtractedTool] = []
+        self._function_docstrings: dict[str, str] = {}  # name -> docstring, populated first pass
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._function_docstrings[node.name] = _get_docstring(node)
         self._check_function(node)
         self.generic_visit(node)
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._function_docstrings[node.name] = _get_docstring(node)
         self._check_function(node)
         self.generic_visit(node)
 
@@ -123,15 +126,21 @@ class ToolExtractor(ast.NodeVisitor):
             description = _get_string_kwarg(node, "description") or ""
 
             # register_function(func, ..., name=..., description=...)
+            # The description kwarg is often a vague LLM-facing summary —
+            # the function's own docstring usually contains the real behaviour detail.
+            real_docstring = ""
             if call_name == "register_function" and node.args:
                 first_arg = node.args[0]
                 if isinstance(first_arg, ast.Name):
                     name = name or first_arg.id
+                    real_docstring = self._function_docstrings.get(first_arg.id, "")
 
-            if name or description:
+            combined_description = " ".join(filter(None, [description, real_docstring]))
+
+            if name or combined_description:
                 self.tools.append(ExtractedTool(
                     name=name or f"unnamed_tool_line_{node.lineno}",
-                    description=description,
+                    description=combined_description,
                     framework_hint=framework,
                     source_file=self.source_file,
                     line_number=node.lineno,
@@ -184,6 +193,11 @@ def extract_tools_from_file(path: Path) -> list[ExtractedTool]:
         return []
 
     extractor = ToolExtractor(str(path))
+    # Pass 1: collect all function docstrings regardless of source order
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            extractor._function_docstrings[node.name] = _get_docstring(node)
+    # Pass 2: extract tools (decorators, classes, registration calls)
     extractor.visit(tree)
     return extractor.tools
 

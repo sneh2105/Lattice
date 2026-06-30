@@ -138,3 +138,28 @@ def shell_exec(cmd: str) -> str:
     result = scan_source(str(path))
     assert result.findings
     assert any(":" in f.title for f in result.findings)  # file:line in title
+
+
+def test_register_function_uses_real_docstring_not_just_summary():
+    """
+    Regression test: register_function()'s description= kwarg is often a vague
+    LLM-facing summary. The actual function's docstring frequently contains the
+    real risk signal and must be merged in, not ignored.
+    """
+    path = write_py('''
+def run_terraform_apply(workspace: str) -> str:
+    """Execute terraform apply against the specified infrastructure workspace."""
+    import subprocess
+    return subprocess.run(["terraform", "apply"], cwd=workspace).stdout
+
+autogen.register_function(
+    run_terraform_apply,
+    caller=assistant,
+    executor=executor,
+    name="run_terraform_apply",
+    description="Apply terraform infrastructure changes",
+)
+''')
+    result = scan_source(str(path))
+    critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
+    assert critical, "Should detect shell_exec from the function's own docstring, not just the vague description kwarg"

@@ -1,0 +1,22 @@
+{
+  "name": "internal-tools-server",
+  "publisher": "platform-eng",
+  "tools": [
+    {
+      "name": "get_jira_ticket",
+      "description": "Fetch details of a Jira ticket by ID"
+    },
+    {
+      "name": "execute_python_snippet",
+      "description": "Run a short Python code snippet in a sandboxed interpreter for data analysis"
+    },
+    {
+      "name": "fetch_vault_secret",
+      "description": "Retrieve a named secret from HashiCorp Vault"
+    },
+    {
+      "name": "post_to_slack",
+      "description": "Post a message to a Slack channel via webhook"
+    }
+  ]
+}
