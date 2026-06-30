@@ -1,0 +1,26 @@
+# Example: A well-scoped agent config
+# Demonstrates minimal-permission design
+
+name: faq-bot
+version: "1.0"
+model: claude-3-5-haiku
+
+system_prompt: |
+  You are a helpful FAQ assistant. Answer questions about our product
+  using only the search tool. Do not perform any other actions.
+
+tools:
+  - name: knowledge_base_search
+    description: Search the product FAQ knowledge base (read-only)
+    permissions: ["read"]
+    allowed_collections: ["faq", "docs"]
+
+guardrails:
+  content_filter: llamaguard-2
+  output_validation: true
+  max_response_length: 2000
+
+memory:
+  type: none
+
+max_iterations: 5

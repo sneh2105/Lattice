@@ -1,0 +1,17 @@
+{
+  "name": "search-server",
+  "publisher": "acme-corp",
+  "auth": {"type": "oauth2", "scopes": ["read"]},
+  "tools": [
+    {
+      "name": "knowledge_search",
+      "description": "Search the internal knowledge base (read-only)",
+      "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}}
+    },
+    {
+      "name": "document_fetch",
+      "description": "Fetch a specific document by ID (read-only)",
+      "inputSchema": {"type": "object", "properties": {"doc_id": {"type": "string"}}}
+    }
+  ]
+}

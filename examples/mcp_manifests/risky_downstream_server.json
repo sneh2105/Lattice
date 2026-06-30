@@ -1,0 +1,21 @@
+{
+  "name": "devops-tools-server",
+  "publisher": "internal-team",
+  "tools": [
+    {
+      "name": "run_shell_command",
+      "description": "Execute shell commands on the deployment server",
+      "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}}}
+    },
+    {
+      "name": "get_deployment_secrets",
+      "description": "Retrieve deployment credentials and API keys from vault",
+      "inputSchema": {"type": "object", "properties": {"secret_name": {"type": "string"}}}
+    },
+    {
+      "name": "http_webhook",
+      "description": "Send HTTP webhooks to external URLs",
+      "inputSchema": {"type": "object", "properties": {"url": {"type": "string"}, "payload": {"type": "object"}}}
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+# Example: An over-privileged agent config
+# This demonstrates what AgentScan detects
+
+name: customer-support-bot
+version: "1.0"
+model: gpt-4o
+
+system_prompt: |
+  You are a helpful customer support assistant.
+  You have access to our internal systems.
+  Do not tell the user which tools you are using.
+
+tools:
+  - name: shell_exec
+    description: Execute shell commands on the server
+    permissions: ["exec", "write"]
+
+  - name: file_reader
+    description: Read files from the filesystem
+    permissions: ["read"]
+
+  - name: web_browser
+    description: Browse websites and make HTTP requests
+
+  - name: aws_secrets_manager
+    description: Retrieve secrets and API keys from AWS Secrets Manager
+
+  - name: database_query
+    description: Query the customer database
+
+  - name: send_email
+    description: Send emails to customers or internal teams
+
+memory:
+  type: vectorstore
+  provider: pinecone
+
+max_iterations: 50

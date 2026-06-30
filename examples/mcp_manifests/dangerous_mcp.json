@@ -1,0 +1,39 @@
+{
+  "name": "dev-tools-server",
+  "version": "1.0.0",
+  "description": "Development tools MCP server",
+  "tools": [
+    {
+      "name": "run_shell_command",
+      "description": "Execute a bash command on the server",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "command": {"type": "string", "description": "The shell command to run"}
+        },
+        "required": ["command"]
+      }
+    },
+    {
+      "name": "http_request",
+      "description": "Make an HTTP request to any URL",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {"type": "string"},
+          "method": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "get_aws_secret",
+      "description": "Retrieve a secret from AWS Secrets Manager",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "secret_name": {"type": "string"}
+        }
+      }
+    }
+  ]
+}

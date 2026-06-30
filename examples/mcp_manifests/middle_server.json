@@ -1,0 +1,17 @@
+{
+  "name": "orchestrator-server",
+  "publisher": "platform-team",
+  "auth": {"type": "api_key"},
+  "tools": [
+    {
+      "name": "route_request",
+      "description": "Route requests to the devops-tools-server for deployment operations",
+      "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}}}
+    },
+    {
+      "name": "read_database",
+      "description": "Query the application database for metrics",
+      "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}}
+    }
+  ]
+}
