@@ -32,10 +32,44 @@ malicious prompt can trigger.
 
 ## What AgentScan does
 
+Real agents live in real code — LangChain, CrewAI, AutoGen — not in YAML files.
+AgentScan reads that code directly, with zero execution:
+
 ```bash
 pip install -e .
-agentscan agent your_agent_config.yaml
+agentscan source ./src/agents/   # scans an entire repo for tool definitions
 ```
+
+```
+  AgentScan ──────────────────────────────────────────
+  Risk score  100/100  ████████████████████
+
+  Findings: 2 CRITICAL  2 HIGH  2 MEDIUM
+  Attack paths: 1 critical chain(s) found
+
+  ╔══ ATTACK PATHS ══════════════════════════════════════════╗
+  ║  1. Cloud privilege escalation path
+  ║     Chain : retrieve_aws_credentials → retrieve_aws_credentials
+  ╚═══════════════════════════════════════════════════════════╝
+
+  [✗ CRITICAL] Tool 'retrieve_aws_credentials' (support_agent.py:26)
+               grants secret access  [confidence: MEDIUM]
+
+  Found via @tool in langchain_or_crewai code. Detected from
+  function/docstring analysis — verify this matches the tool's
+  actual runtime behaviour.
+
+  Fix:
+    Review 'retrieve_aws_credentials' at support_agent.py:26.
+    Scope permissions narrowly, add input validation.
+```
+
+It parses `@tool` decorators, `BaseTool` subclasses, and `register_function()` calls
+across LangChain, CrewAI, and AutoGen patterns via Python's AST — no agent execution,
+no API key required, works on a clone of your repo.
+
+If you'd rather describe an agent declaratively (e.g. for a deploy-time gate, or an
+agent that genuinely is config-driven), `agentscan agent` accepts YAML/JSON directly:
 
 ```
   AgentScan ──────────────────────────────────────────

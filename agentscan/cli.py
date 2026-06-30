@@ -4,6 +4,7 @@ import argparse, sys
 from pathlib import Path
 
 from agentscan.scanners.agent_scanner import scan_agent_config
+from agentscan.scanners.source_scanner import scan_source
 from agentscan.scanners.mcp_scanner import scan_mcp
 from agentscan.scanners.supply_chain_scanner import scan_supply_chain
 from agentscan.outputs.terminal import render_result
@@ -49,10 +50,14 @@ Compliance:   agentscan compliance map   ./agent.yaml
         """)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    for name, help_text in [("agent","Scan agent config"),("mcp","Scan MCP server"),("supply","Scan AI supply chain")]:
+    for name, help_text in [("agent","Scan agent config (YAML/JSON)"),
+                             ("source","Scan real agent source code — no config file needed"),
+                             ("mcp","Scan MCP server"),
+                             ("supply","Scan AI supply chain")]:
         p = sub.add_parser(name, help=help_text)
-        if name == "agent": p.add_argument("config")
-        else:               p.add_argument("target")
+        if name == "agent":   p.add_argument("config")
+        elif name == "source": p.add_argument("path", help="Python file or directory containing agent code")
+        else:                 p.add_argument("target")
         p.add_argument("--output", choices=["text","json","sarif"], default="text")
         p.add_argument("--verbose", action="store_true")
         p.add_argument("--fail-on", choices=["CRITICAL","HIGH","MEDIUM"])
@@ -77,9 +82,10 @@ Compliance:   agentscan compliance map   ./agent.yaml
         {"analyse": cmd_runtime_analyse, "flow": cmd_prompt_flow, "identity": cmd_identity,
          "goals": cmd_goal_integrity}[args.rt_command](args); return
 
-    if args.command == "agent":     result = scan_agent_config(args.config)
-    elif args.command == "mcp":     result = scan_mcp(args.target, timeout=getattr(args,"timeout",10))
-    elif args.command == "supply":  result = scan_supply_chain(args.target)
+    if args.command == "agent":      result = scan_agent_config(args.config)
+    elif args.command == "source":   result = scan_source(args.path)
+    elif args.command == "mcp":      result = scan_mcp(args.target, timeout=getattr(args,"timeout",10))
+    elif args.command == "supply":   result = scan_supply_chain(args.target)
     else: parser.print_help(); sys.exit(1)
 
     output = _output(result, args.output, args.verbose)
