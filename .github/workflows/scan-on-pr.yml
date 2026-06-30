@@ -1,9 +1,11 @@
-# Scan agent configs in PRs automatically
+# Scan agent code and configs in PRs automatically.
+# GitHub-native: triggers on every PR, comments findings, uploads SARIF to the Security tab.
 name: AgentScan PR Check
 
 on:
   pull_request:
     paths:
+      - "**/*.py"
       - "**/*.yaml"
       - "**/*.yml"
       - "**/*.json"
@@ -11,20 +13,47 @@ on:
 jobs:
   scan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # required for SARIF upload
+      pull-requests: write     # required to comment on the PR
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need full history for `git diff` against the base branch
+
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - run: pip install agentscan
 
-      - name: Scan changed agent configs
+      # Not yet on PyPI — install from this repo directly.
+      # Once published: replace with `pip install agentscan`.
+      - run: pip install -e .
+
+      - name: Doctor — confirm what AgentScan can see in this repo
+        run: agentscan doctor .
+
+      - name: Scan the full checkout (source code, not just changed files)
         run: |
-          git diff --name-only origin/main...HEAD | \
+          agentscan source . --output sarif --output-file results.sarif || true
+
+      - name: Scan any changed YAML/JSON agent configs
+        run: |
+          git diff --name-only origin/${{ github.base_ref }}...HEAD | \
             grep -E '\.(yaml|yml|json)$' | \
             xargs -I{} agentscan agent {} --output sarif --output-file scan-{}.sarif || true
 
-      - name: Upload results
+      - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: "*.sarif"
+          sarif_file: "."
+        if: always()
+
+      - name: Generate HTML report as a workflow artifact
+        run: agentscan source . --output html --output-file report.html || true
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentscan-report
+          path: report.html
         if: always()

@@ -1,0 +1,53 @@
+# AgentScan — Bitbucket Pipelines integration
+#
+# Bitbucket has no native SARIF/Security-tab equivalent to GitHub, so the
+# pattern here is: scan on every PR, fail the build on CRITICAL/HIGH
+# findings, and publish the HTML report as a downloadable build artifact.
+#
+# Place this file at the repo root as `bitbucket-pipelines.yml`.
+
+image: python:3.12
+
+pipelines:
+  pull-requests:
+    '**':
+      - step:
+          name: AgentScan — AI agent security scan
+          script:
+            # Not yet on PyPI — clone and install from source.
+            # Once published: replace these two lines with `pip install agentscan`.
+            - git clone https://github.com/<your-username>/agentscan /tmp/agentscan
+            - pip install -e "/tmp/agentscan[dev]"
+
+            # Tell the build log what AgentScan found in this repo
+            - agentscan doctor .
+
+            # Scan real source code (LangChain/CrewAI/AutoGen/etc.)
+            - agentscan source . --output sarif --output-file results.sarif || true
+
+            # Scan any declarative agent configs
+            - >
+              for f in $(find . -name "*.yaml" -o -name "*.yml" -o -name "agent*.json"); do
+                agentscan agent "$f" --output json --output-file "$(basename $f).agentscan.json" || true
+              done
+
+            # Human-readable report as a build artifact
+            - agentscan source . --output html --output-file agentscan-report.html
+
+            # Fail the pipeline if any HIGH or CRITICAL findings exist —
+            # remove this line to scan without blocking the PR
+            - agentscan source . --fail-on HIGH
+          artifacts:
+            - agentscan-report.html
+            - results.sarif
+
+  branches:
+    main:
+      - step:
+          name: AgentScan — full scan on merge to main
+          script:
+            - git clone https://github.com/<your-username>/agentscan /tmp/agentscan
+            - pip install -e "/tmp/agentscan[dev]"
+            - agentscan source . --output html --output-file agentscan-report.html
+          artifacts:
+            - agentscan-report.html
