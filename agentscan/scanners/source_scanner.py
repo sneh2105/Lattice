@@ -41,7 +41,7 @@ class ExtractedTool:
 
 # Decorator / call patterns that mark a function as an agent tool
 TOOL_DECORATOR_NAMES = {
-    "tool": "langchain_or_crewai",          # @tool  (LangChain, CrewAI both use this name)
+    "tool": "langchain_crewai_or_nova_act",  # @tool — LangChain, CrewAI, and Amazon Nova Act all use this name
     "function_tool": "openai_agents",       # @function_tool (OpenAI Agents SDK)
     "kernel_function": "semantic_kernel",   # @sk.kernel_function (Semantic Kernel)
 }
@@ -177,7 +177,7 @@ class ToolExtractor(ast.NodeVisitor):
             self.tools.append(ExtractedTool(
                 name=tool_name,
                 description=description or _get_docstring(node) if hasattr(node, "__doc__") else description,
-                framework_hint="langchain_or_crewai",
+                framework_hint="langchain_crewai_or_nova_act",
                 source_file=self.source_file,
                 line_number=node.lineno,
                 decorator_used="class BaseTool",

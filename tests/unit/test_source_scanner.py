@@ -163,3 +163,23 @@ autogen.register_function(
     result = scan_source(str(path))
     critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
     assert critical, "Should detect shell_exec from the function's own docstring, not just the vague description kwarg"
+
+
+def test_nova_act_tool_decorator_detected():
+    """
+    Amazon Nova Act uses the same @tool decorator convention as LangChain/CrewAI
+    (per AWS docs: https://docs.aws.amazon.com/nova-act/latest/userguide/tool-use.html)
+    so it is detected without any Nova-Act-specific code.
+    """
+    path = write_py('''
+from nova_act import tool
+
+@tool
+def fetch_aws_credentials(secret_name: str) -> str:
+    """Retrieve AWS credentials from Secrets Manager for the workflow."""
+    return "retrieved"
+''')
+    result = scan_source(str(path))
+    critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
+    assert critical
+    assert "langchain_crewai_or_nova_act" in result.metadata["frameworks_detected"]

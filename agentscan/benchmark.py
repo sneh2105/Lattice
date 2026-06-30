@@ -66,6 +66,9 @@ SCENARIOS: list[ScenarioSpec] = [
     ScenarioSpec("vulnerable_agents/05_financial_fraud", ["source", "finance_agent.py"],
                  55, True, "Financial fraud chain",
                  "An agent that can look up account data AND initiate wire transfers"),
+    ScenarioSpec("vulnerable_agents/06_nova_act_credential_exfil", ["source", "nova_act_agent.py"],
+                 90, True, "Amazon Nova Act credential + shell",
+                 "A Nova Act browser automation workflow with AWS credential and shell diagnostic tools"),
 ]
 
 SAFE_SCENARIO = ScenarioSpec("safe_agents/01_scoped_search_agent", ["agent", "agent.yaml"],
@@ -135,7 +138,7 @@ def run_demo() -> int:
     all_ok = all_ok and safe_ok
 
     if all_ok:
-        print(f"  {c(GREEN+BOLD, '✓ AgentScan correctly identified all 5 attack patterns with zero false positives.')}")
+        print(f"  {c(GREEN+BOLD, f'✓ AgentScan correctly identified all {len(SCENARIOS)} attack patterns with zero false positives.')}")
     else:
         print(f"  {c(RED+BOLD, '✗ Some scenarios did not match expected output — see above.')}")
     print(f"\n  {c(DIM, 'Try it on your own code: agentscan doctor . && agentscan source .')}\n")
@@ -152,19 +155,19 @@ def run_benchmark() -> int:
 
     passed, failed = 0, 0
     print("\n  AgentScan Benchmark\n")
-    print(f"  {'Scenario':<32} {'Risk':<8} {'Paths':<8} {'Status'}")
-    print(f"  {'-'*32} {'-'*8} {'-'*8} {'-'*10}")
+    print(f"  {'Scenario':<36} {'Risk':<8} {'Paths':<8} {'Status'}")
+    print(f"  {'-'*36} {'-'*8} {'-'*8} {'-'*10}")
 
     for spec in SCENARIOS:
         data = _run_scan(examples_root, spec)
         if data.get("error"):
-            print(f"  {spec.label:<32} {'-':<8} {'-':<8} FAIL ({str(data['error'])[:30]})")
+            print(f"  {spec.label:<36} {'-':<8} {'-':<8} FAIL ({str(data['error'])[:30]})")
             failed += 1
             continue
         risk = data.get("risk_score", 0)
         n_paths = len(data.get("attack_paths", []))
         ok = risk >= spec.min_risk and (n_paths >= 1 if spec.expect_path else True)
-        print(f"  {spec.label:<32} {risk:<8} {n_paths:<8} {'PASS' if ok else 'FAIL'}")
+        print(f"  {spec.label:<36} {risk:<8} {n_paths:<8} {'PASS' if ok else 'FAIL'}")
         passed += 1 if ok else 0
         failed += 0 if ok else 1
 
@@ -172,7 +175,7 @@ def run_benchmark() -> int:
     risk = data.get("risk_score", -1)
     n_findings = data.get("summary", {}).get("total_findings", -1)
     safe_ok = risk == 0 and n_findings == 0
-    print(f"  {SAFE_SCENARIO.label:<32} {risk:<8} {'-':<8} {'PASS' if safe_ok else 'FAIL'}")
+    print(f"  {SAFE_SCENARIO.label:<36} {risk:<8} {'-':<8} {'PASS' if safe_ok else 'FAIL'}")
     passed += 1 if safe_ok else 0
     failed += 0 if safe_ok else 1
 
