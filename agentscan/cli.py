@@ -9,6 +9,7 @@ from agentscan.scanners.mcp_scanner import scan_mcp
 from agentscan.scanners.supply_chain_scanner import scan_supply_chain
 from agentscan.outputs.terminal import render_result
 from agentscan.outputs.json_output import to_json, to_sarif
+from agentscan.outputs.html_report import generate_html_report
 from agentscan.models import Severity
 from agentscan.cli_compliance import add_compliance_parser, cmd_map, cmd_dpia, cmd_audit
 from agentscan.graph.cli_graph import (add_graph_parser, cmd_graph_agent, cmd_graph_mcp, cmd_graph_chain,
@@ -21,6 +22,9 @@ def _output(result, fmt, verbose):
     if fmt == "json":   return to_json(result)
     if fmt == "sarif":  return to_sarif(result)
     return render_result(result, verbose=verbose)
+
+def _is_html(fmt):
+    return fmt == "html"
 
 def _should_fail(result, fail_on):
     if not fail_on: return False
@@ -58,7 +62,7 @@ Compliance:   agentscan compliance map   ./agent.yaml
         if name == "agent":   p.add_argument("config")
         elif name == "source": p.add_argument("path", help="Python file or directory containing agent code")
         else:                 p.add_argument("target")
-        p.add_argument("--output", choices=["text","json","sarif"], default="text")
+        p.add_argument("--output", choices=["text","json","sarif","html"], default="text")
         p.add_argument("--verbose", action="store_true")
         p.add_argument("--fail-on", choices=["CRITICAL","HIGH","MEDIUM"])
         p.add_argument("--output-file")
@@ -88,11 +92,20 @@ Compliance:   agentscan compliance map   ./agent.yaml
     elif args.command == "supply":   result = scan_supply_chain(args.target)
     else: parser.print_help(); sys.exit(1)
 
-    output = _output(result, args.output, args.verbose)
-    if args.output_file:
-        Path(args.output_file).write_text(output, encoding="utf-8")
-        if args.output == "text": print(f"Results written to {args.output_file}")
-    else: print(output)
+    if _is_html(args.output):
+        out_path = args.output_file or f"agentscan_report_{result.scanner_type}.html"
+        path = generate_html_report(result, out_path, title=result.target)
+        print(f"HTML report written to {path}")
+        print(f"  Risk score   : {result.risk_score()}/100")
+        print(f"  Findings     : {len(result.reportable_findings)}")
+        print(f"  Attack paths : {len(result.attack_paths)}")
+        print(f"  Open in a browser: file://{Path(path).resolve()}")
+    else:
+        output = _output(result, args.output, args.verbose)
+        if args.output_file:
+            Path(args.output_file).write_text(output, encoding="utf-8")
+            if args.output == "text": print(f"Results written to {args.output_file}")
+        else: print(output)
     if _should_fail(result, args.fail_on): sys.exit(1)
 
 if __name__ == "__main__": main()

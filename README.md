@@ -101,6 +101,18 @@ agentscan agent agent.yaml --output sarif --output-file results.sarif   # → Gi
 agentscan agent agent.yaml --fail-on HIGH                                # → blocks PR merge
 ```
 
+## Sharing results — HTML dashboard
+
+Every scan can produce a self-contained HTML report — no server, no database,
+just a file you can open in any browser or email to someone:
+
+```bash
+agentscan source ./src/agents/ --output html --output-file report.html
+```
+
+Includes a risk score gauge, severity breakdown chart, attack paths, and a
+filterable findings list with full evidence and fixes.
+
 ## Why this, not just a permission checklist
 
 Most "AI agent security" advice is a checklist: *does your agent have shell access? does it
