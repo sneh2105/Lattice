@@ -16,6 +16,7 @@ from agentscan.graph.cli_graph import (add_graph_parser, cmd_graph_agent, cmd_gr
                                         cmd_graph_trustflow, cmd_graph_escalation, cmd_graph_query)
 from agentscan.runtime.cli_runtime import (add_runtime_parser, cmd_runtime_analyse, cmd_prompt_flow,
                                             cmd_identity, cmd_goal_integrity)
+from agentscan.doctor import run_doctor, render_doctor_report
 
 
 def _output(result, fmt, verbose):
@@ -68,6 +69,9 @@ Compliance:   agentscan compliance map   ./agent.yaml
         p.add_argument("--output-file")
         if name == "mcp": p.add_argument("--timeout", type=int, default=10)
 
+    doctor_p = sub.add_parser("doctor", help="Check environment, detect frameworks and agent configs")
+    doctor_p.add_argument("path", nargs="?", default=".", help="Path to scan (default: current directory)")
+
     add_compliance_parser(sub)
     add_graph_parser(sub)
     add_runtime_parser(sub)
@@ -85,6 +89,11 @@ Compliance:   agentscan compliance map   ./agent.yaml
     if args.command == "runtime":
         {"analyse": cmd_runtime_analyse, "flow": cmd_prompt_flow, "identity": cmd_identity,
          "goals": cmd_goal_integrity}[args.rt_command](args); return
+
+    if args.command == "doctor":
+        results = run_doctor(args.path)
+        print(render_doctor_report(results))
+        return
 
     if args.command == "agent":      result = scan_agent_config(args.config)
     elif args.command == "source":   result = scan_source(args.path)

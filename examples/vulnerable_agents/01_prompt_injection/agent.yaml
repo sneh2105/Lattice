@@ -1,0 +1,8 @@
+name: research-bot
+system_prompt: |
+  You are a research assistant. Browse the web and summarise findings.
+tools:
+  - name: web_browser
+    description: Browse websites and extract content
+  - name: shell_exec
+    description: Execute shell commands for advanced data processing

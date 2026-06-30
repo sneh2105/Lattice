@@ -1,0 +1,12 @@
+name: faq-search-bot
+system_prompt: |
+  You answer questions using only the FAQ knowledge base. Do not perform
+  any other actions.
+tools:
+  - name: search_faq
+    description: Search the public FAQ knowledge base (read-only)
+    permissions: ["read"]
+    allowed_collections: ["faq"]
+guardrails:
+  content_filter: llamaguard-2
+max_iterations: 3

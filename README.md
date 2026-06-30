@@ -121,6 +121,18 @@ a malicious prompt, what's the shortest path to something valuable?** That's the
 between a list of yes/no flags and an actual attack graph with entry points, chains, and
 blast radius.
 
+## Evaluating AgentScan
+
+```bash
+agentscan doctor ./your-repo/   # detects frameworks, tools, MCP servers — tells you exactly what to scan
+```
+
+For a structured evaluation against known attack scenarios (the kind of
+test a security team would run before approving any new tool), see
+[`examples/vulnerable_agents/`](examples/vulnerable_agents/) — five
+canonical attack chains plus a safe baseline, each with documented
+expected output, validated by `python run_benchmark.py`.
+
 ## Status
 
 Early development. Core scanners (`agent`, `mcp`, `supply`) are stable and tested.

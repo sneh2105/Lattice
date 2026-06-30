@@ -1,0 +1,8 @@
+name: deployment-bot
+system_prompt: |
+  You help with deployment automation tasks.
+tools:
+  - name: aws_secrets_manager
+    description: Retrieve secrets and API keys from AWS Secrets Manager
+  - name: web_browser
+    description: Make HTTP requests to deployment webhooks

@@ -1,0 +1,7 @@
+{
+  "name": "analytics-server",
+  "tools": [
+    {"name": "query_database", "description": "Run a SQL query against the analytics database"},
+    {"name": "http_post", "description": "Send data to an external HTTP endpoint"}
+  ]
+}
