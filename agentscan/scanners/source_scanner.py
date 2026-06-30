@@ -10,6 +10,13 @@ Supported patterns (auto-detected):
   CrewAI     — BaseTool subclasses, @tool decorator
   AutoGen    — @register_function, function passed to register_function()
   OpenAI SDK — @function_tool decorator
+  Amazon Nova Act — @tool decorator (same convention as LangChain/CrewAI)
+  Custom / no framework — raw Anthropic or OpenAI native tool schemas:
+                          TOOLS = [{"name": ..., "description": ..., "input_schema": {...}}]
+                          This is the format companies use when they build their own
+                          orchestration layer directly on the model provider's API,
+                          which is common at larger enterprises that haven't adopted
+                          a third-party agent framework.
   Generic    — any function with a docstring passed into a tools=[...] list
 
 This produces the exact same internal capability model as agent_scanner.py,
@@ -183,6 +190,68 @@ class ToolExtractor(ast.NodeVisitor):
                 decorator_used="class BaseTool",
             ))
         self.generic_visit(node)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        """
+        Detect raw Anthropic/OpenAI-native tool schemas — the pattern used by
+        companies running a custom in-house agent with no named framework:
+
+            TOOLS = [
+                {"name": "...", "description": "...", "input_schema": {...}},
+                ...
+            ]
+
+        This is the single most common pattern for in-house orchestration
+        layers, since it's literally the wire format both Anthropic's and
+        OpenAI's APIs expect — no SDK wrapper required.
+        """
+        if not isinstance(node.value, ast.List):
+            self.generic_visit(node)
+            return
+
+        for element in node.value.elts:
+            if not isinstance(element, ast.Dict):
+                continue
+            entry = self._dict_literal_to_pydict(element)
+            if not entry:
+                continue
+            # Require both name and description to avoid matching unrelated list-of-dict data
+            name = entry.get("name")
+            description = entry.get("description", "")
+            if not isinstance(name, str):
+                continue
+            # Require at least one more tool-schema-shaped key to reduce false positives
+            # on generic config dicts that happen to have name/description fields
+            schema_markers = {"input_schema", "inputSchema", "parameters", "function"}
+            if not (schema_markers & set(entry.keys())):
+                continue
+
+            self.tools.append(ExtractedTool(
+                name=name,
+                description=str(description) if description else "",
+                framework_hint="raw_api_tool_schema",
+                source_file=self.source_file,
+                line_number=element.lineno,
+                decorator_used="native tool schema (Anthropic/OpenAI API format)",
+            ))
+        self.generic_visit(node)
+
+    @staticmethod
+    def _dict_literal_to_pydict(node: ast.Dict) -> dict | None:
+        """Best-effort: convert a simple AST dict literal (string/constant values only) to a Python dict."""
+        result: dict = {}
+        for key_node, val_node in zip(node.keys, node.values):
+            if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
+                continue
+            key = key_node.value
+            if isinstance(val_node, ast.Constant):
+                result[key] = val_node.value
+            elif isinstance(val_node, (ast.Dict, ast.List)):
+                # Nested structures (e.g. input_schema) — just mark presence, don't recurse
+                result[key] = {}
+            else:
+                result[key] = None
+        return result or None
 
 
 def extract_tools_from_file(path: Path) -> list[ExtractedTool]:

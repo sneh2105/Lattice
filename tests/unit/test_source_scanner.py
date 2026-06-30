@@ -183,3 +183,63 @@ def fetch_aws_credentials(secret_name: str) -> str:
     critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
     assert critical
     assert "langchain_crewai_or_nova_act" in result.metadata["frameworks_detected"]
+
+
+def test_raw_api_tool_schema_detected():
+    """
+    Companies running a custom in-house agent (no LangChain/CrewAI/AutoGen)
+    typically define tools as raw dicts matching the Anthropic/OpenAI API
+    schema directly. This is the most common pattern for enterprises that
+    haven't adopted a third-party framework.
+    """
+    path = write_py('''
+TOOLS = [
+    {
+        "name": "execute_shell",
+        "description": "Run a shell command on the internal automation server",
+        "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}},
+    },
+    {
+        "name": "get_weather",
+        "description": "Look up the weather for a city",
+        "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}},
+    },
+]
+''')
+    result = scan_source(str(path))
+    assert result.metadata["tools_found"] == 2
+    critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
+    assert critical
+    assert any("execute_shell" in f.title for f in critical)
+    # Safe tool should not produce critical findings
+    assert not any("get_weather" in f.title and "CRITICAL" in str(f.severity) for f in result.findings)
+
+
+def test_raw_api_tool_schema_requires_schema_marker():
+    """A list of dicts with name/description but no schema marker should NOT
+    be treated as a tool list — avoids false positives on generic config data."""
+    path = write_py('''
+USERS = [
+    {"name": "alice", "description": "admin user"},
+    {"name": "bob", "description": "regular user"},
+]
+''')
+    result = scan_source(str(path))
+    assert result.metadata.get("tools_found", 0) == 0
+
+
+def test_raw_api_tool_schema_with_openai_function_format():
+    """OpenAI's function-calling format nests schema under 'function' key."""
+    path = write_py('''
+TOOLS = [
+    {
+        "name": "query_database",
+        "description": "Execute a SQL query against the production database",
+        "function": {"parameters": {"type": "object"}},
+    },
+]
+''')
+    result = scan_source(str(path))
+    assert result.metadata["tools_found"] == 1
+    high_or_critical = [f for f in result.findings if str(f.severity) in ("Severity.CRITICAL", "Severity.HIGH")]
+    assert high_or_critical

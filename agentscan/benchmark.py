@@ -69,6 +69,9 @@ SCENARIOS: list[ScenarioSpec] = [
     ScenarioSpec("vulnerable_agents/06_nova_act_credential_exfil", ["source", "nova_act_agent.py"],
                  90, True, "Amazon Nova Act credential + shell",
                  "A Nova Act browser automation workflow with AWS credential and shell diagnostic tools"),
+    ScenarioSpec("vulnerable_agents/07_custom_inhouse_agent", ["source", "internal_agent.py"],
+                 90, True, "Custom in-house agent (no framework)",
+                 "A hand-built agent using raw Anthropic/OpenAI tool schemas — no LangChain, CrewAI, or any named SDK"),
 ]
 
 SAFE_SCENARIO = ScenarioSpec("safe_agents/01_scoped_search_agent", ["agent", "agent.yaml"],

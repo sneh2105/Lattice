@@ -20,7 +20,7 @@ def test_demo_command_works_from_any_cwd(tmp_path):
 def test_benchmark_command_exits_zero_on_success():
     result = subprocess.run(["agentscan", "benchmark"], capture_output=True, text=True)
     assert result.returncode == 0
-    assert "7/7 scenarios passed" in result.stdout
+    assert "8/8 scenarios passed" in result.stdout
 
 
 def test_benchmark_command_works_from_any_cwd(tmp_path):
