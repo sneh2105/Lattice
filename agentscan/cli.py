@@ -17,6 +17,7 @@ from agentscan.graph.cli_graph import (add_graph_parser, cmd_graph_agent, cmd_gr
 from agentscan.runtime.cli_runtime import (add_runtime_parser, cmd_runtime_analyse, cmd_prompt_flow,
                                             cmd_identity, cmd_goal_integrity)
 from agentscan.doctor import run_doctor, render_doctor_report
+from agentscan.benchmark import run_demo, run_benchmark
 
 
 def _output(result, fmt, verbose):
@@ -72,6 +73,9 @@ Compliance:   agentscan compliance map   ./agent.yaml
     doctor_p = sub.add_parser("doctor", help="Check environment, detect frameworks and agent configs")
     doctor_p.add_argument("path", nargs="?", default=".", help="Path to scan (default: current directory)")
 
+    sub.add_parser("demo", help="Run AgentScan against bundled vulnerable agents — zero setup, no code of your own needed")
+    sub.add_parser("benchmark", help="Run the evaluation kit and report pass/fail against documented thresholds")
+
     add_compliance_parser(sub)
     add_graph_parser(sub)
     add_runtime_parser(sub)
@@ -94,6 +98,12 @@ Compliance:   agentscan compliance map   ./agent.yaml
         results = run_doctor(args.path)
         print(render_doctor_report(results))
         return
+
+    if args.command == "demo":
+        sys.exit(run_demo())
+
+    if args.command == "benchmark":
+        sys.exit(run_benchmark())
 
     if args.command == "agent":      result = scan_agent_config(args.config)
     elif args.command == "source":   result = scan_source(args.path)

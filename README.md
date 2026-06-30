@@ -9,11 +9,46 @@ it shows you the complete chain from a malicious prompt to a stolen credential.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-108%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-140%20passing-brightgreen)](tests/)
 
 </div>
 
 ---
+
+## Supported frameworks
+
+✅ LangChain · ✅ LangGraph · ✅ CrewAI · ✅ AutoGen · ✅ OpenAI Agents SDK ·
+✅ Google ADK · ✅ Semantic Kernel · ✅ Amazon Bedrock Agents · ✅ MCP
+
+Source code scanning (`agentscan source`) covers the first seven via AST analysis
+of `@tool` decorators, `BaseTool` subclasses, and registration calls. MCP servers
+are scanned directly via `agentscan mcp`, live or from a manifest.
+
+## Try it with zero setup
+
+No agent of your own handy? Run AgentScan against five bundled, intentionally
+vulnerable agents — no cloning, no config, just installed and run:
+
+```bash
+pip install -e .
+agentscan demo
+```
+
+```
+  Prompt injection -> shell
+  An agent with browser + shell tools — a malicious web page can hijack it into running commands
+  ✓ Risk 56/100  ·  1 attack path(s) found
+    Remote code execution + exfiltration path
+  ...
+  Safe scoped search agent
+  ✓ Risk 0/100  ·  0 finding(s) — no false positives
+
+  ✓ AgentScan correctly identified all 5 attack patterns with zero false positives.
+```
+
+`agentscan benchmark` runs the same suite in a compact pass/fail table — see
+[`examples/vulnerable_agents/`](examples/vulnerable_agents/) for the full
+evaluation kit, including what each scenario tests and why.
 
 ## The problem
 
@@ -140,14 +175,16 @@ blast radius.
 ## Evaluating AgentScan
 
 ```bash
-agentscan doctor ./your-repo/   # detects frameworks, tools, MCP servers — tells you exactly what to scan
+agentscan demo                  # zero-setup: scan 5 vulnerable agents + 1 safe baseline
+agentscan benchmark              # same suite, compact pass/fail table for CI
+agentscan doctor ./your-repo/    # then: detects frameworks, tools, MCP servers in YOUR code
 ```
 
 For a structured evaluation against known attack scenarios (the kind of
 test a security team would run before approving any new tool), see
 [`examples/vulnerable_agents/`](examples/vulnerable_agents/) — five
 canonical attack chains plus a safe baseline, each with documented
-expected output, validated by `python run_benchmark.py`.
+expected output.
 
 ## Status
 
