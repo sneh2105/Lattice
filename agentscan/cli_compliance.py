@@ -72,7 +72,7 @@ def cmd_map(args):
             mand = _col(RED, "mandatory") if ctrl.severity == "mandatory" else _col(BLUE, "recommended")
             print(f"    {mand}  {ctrl.framework}  {_col(ORANGE, ctrl.control_id)}  {ctrl.control_name}")
 
-    print(f"\n  {_col(DIM, 'AgentScan v0.1.0 · github.com/agentscan/agentscan')}\n")
+    print(f"\n  {_col(DIM, 'AgentScan v0.1.0 · github.com/sneh2105/agentscan')}\n")
 
 
 def cmd_dpia(args):

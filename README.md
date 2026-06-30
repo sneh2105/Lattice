@@ -197,7 +197,7 @@ you want to go deeper.
 Not yet on PyPI. Install from source:
 
 ```bash
-git clone https://github.com/<your-username>/agentscan
+git clone https://github.com/sneh2105/agentscan
 cd agentscan
 pip install -e ".[dev]"
 agentscan agent examples/agent_configs/dangerous_agent.yaml

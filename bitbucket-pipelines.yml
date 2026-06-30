@@ -16,7 +16,7 @@ pipelines:
           script:
             # Not yet on PyPI — clone and install from source.
             # Once published: replace these two lines with `pip install agentscan`.
-            - git clone https://github.com/<your-username>/agentscan /tmp/agentscan
+            - git clone https://github.com/sneh2105/agentscan /tmp/agentscan
             - pip install -e "/tmp/agentscan[dev]"
 
             # Tell the build log what AgentScan found in this repo
@@ -46,7 +46,7 @@ pipelines:
       - step:
           name: AgentScan — full scan on merge to main
           script:
-            - git clone https://github.com/<your-username>/agentscan /tmp/agentscan
+            - git clone https://github.com/sneh2105/agentscan /tmp/agentscan
             - pip install -e "/tmp/agentscan[dev]"
             - agentscan source . --output html --output-file agentscan-report.html
           artifacts:

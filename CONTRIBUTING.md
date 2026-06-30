@@ -5,7 +5,7 @@ Thanks for contributing. AgentScan is Apache 2.0 licensed.
 ## Setup
 
 ```bash
-git clone https://github.com/agentscan/agentscan
+git clone https://github.com/sneh2105/agentscan
 cd agentscan
 pip install -e ".[dev]"
 pytest tests/unit/

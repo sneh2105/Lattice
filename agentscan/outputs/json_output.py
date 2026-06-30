@@ -110,7 +110,7 @@ def to_sarif(result: ScanResult) -> str:
                 "driver": {
                     "name": "AgentScan",
                     "version": "0.1.0",
-                    "informationUri": "https://github.com/agentscan/agentscan",
+                    "informationUri": "https://github.com/sneh2105/agentscan",
                     "rules": rules,
                 }
             },
