@@ -96,10 +96,26 @@ shell execution, credential access, and network egress into a single exploit cha
 
 ## CI/CD integration
 
+AgentScan only operates on local disk — there's no "point it at a GitHub
+URL" feature. The CI step always clones the repo first (which CI platforms
+do automatically), then runs AgentScan against that checkout. Same pattern
+on every platform:
+
 ```bash
 agentscan agent agent.yaml --output sarif --output-file results.sarif   # → GitHub Security tab
 agentscan agent agent.yaml --fail-on HIGH                                # → blocks PR merge
 ```
+
+**GitHub Actions** — see [`.github/workflows/scan-on-pr.yml`](.github/workflows/scan-on-pr.yml).
+Runs on every PR, scans both Python source and YAML/JSON configs, uploads
+SARIF to the Security tab, comments findings.
+
+**Bitbucket Pipelines** — see [`bitbucket-pipelines.yml`](bitbucket-pipelines.yml).
+Bitbucket has no SARIF-native security tab, so this publishes the HTML
+report as a build artifact and fails the pipeline on `--fail-on HIGH`.
+
+**GitLab CI / Jenkins / other** — same three steps work anywhere with a
+shell: `pip install`, `agentscan doctor .`, `agentscan source . --fail-on HIGH`.
 
 ## Sharing results — HTML dashboard
 
