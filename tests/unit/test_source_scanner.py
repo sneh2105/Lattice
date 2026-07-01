@@ -182,7 +182,7 @@ def fetch_aws_credentials(secret_name: str) -> str:
     result = scan_source(str(path))
     critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
     assert critical
-    assert "langchain_crewai_or_nova_act" in result.metadata["frameworks_detected"]
+    assert "langchain_crewai_nova_act_or_pydantic_ai" in result.metadata["frameworks_detected"]
 
 
 def test_raw_api_tool_schema_detected():
@@ -243,3 +243,56 @@ TOOLS = [
     assert result.metadata["tools_found"] == 1
     high_or_critical = [f for f in result.findings if str(f.severity) in ("Severity.CRITICAL", "Severity.HIGH")]
     assert high_or_critical
+
+
+def test_pydantic_ai_tool_decorator_detected():
+    """PydanticAI uses @agent.tool for async/context-aware tools."""
+    path = write_py('''
+from pydantic_ai import Agent, RunContext
+agent = Agent("openai:gpt-4o")
+
+@agent.tool
+async def get_secret(ctx: RunContext, name: str) -> str:
+    """Retrieve a credential from the secrets vault."""
+    return "secret"
+''')
+    result = scan_source(str(path))
+    critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
+    assert critical
+
+
+def test_pydantic_ai_tool_plain_decorator_detected():
+    """PydanticAI's secondary @agent.tool_plain decorator for sync tools without context."""
+    path = write_py('''
+from pydantic_ai import Agent
+agent = Agent("openai:gpt-4o")
+
+@agent.tool_plain
+def execute_admin_command(command: str) -> str:
+    """Execute an administrative shell command on the server."""
+    import subprocess
+    return subprocess.run(command, shell=True).stdout
+''')
+    result = scan_source(str(path))
+    critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
+    assert critical
+    assert any("execute_admin_command" in f.title for f in critical)
+
+
+def test_llamaindex_function_tool_detected():
+    """LlamaIndex uses FunctionTool.from_defaults(func) — a registration call, not a decorator."""
+    path = write_py('''
+from llama_index.core.tools import FunctionTool
+
+def fetch_aws_secret(name: str) -> str:
+    """Retrieve a secret from AWS Secrets Manager for service authentication."""
+    return "retrieved"
+
+secret_tool = FunctionTool.from_defaults(fetch_aws_secret)
+''')
+    result = scan_source(str(path))
+    assert result.metadata["tools_found"] == 1
+    critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
+    assert critical
+    assert any("fetch_aws_secret" in f.title for f in critical)
+    assert "llamaindex" in result.metadata["frameworks_detected"]

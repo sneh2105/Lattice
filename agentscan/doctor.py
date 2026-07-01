@@ -34,9 +34,21 @@ FRAMEWORK_SIGNATURES: dict[str, list[str]] = {
     "Google ADK":             [r"from google\.adk", r"google\.generativeai"],
     "Semantic Kernel":        [r"import semantic_kernel", r"sk\.kernel_function"],
     "Amazon Bedrock Agents":  [r"bedrock-agent-runtime", r"boto3\.client\([\"']bedrock"],
+    "Amazon Nova Act":        [r"from nova_act", r"import nova_act"],
+    "PydanticAI":             [r"from pydantic_ai", r"import pydantic_ai", r"@agent\.tool"],
+    "LlamaIndex":             [r"from llama_index", r"FunctionTool\.from_defaults"],
+    "Haystack":               [r"from haystack", r"haystack\.components"],
+    "Dify (no-code)":         [r"model_config.*agent_mode", r"tool_name.*provider_id"],
+    "n8n (workflow)":         [r"n8n-nodes-base", r"\"type\":\s*\"n8n-"],
+    "Flowise (no-code)":      [r"toolAgent", r"\"type\":\s*\"customTool\""],
+    "Mastra (TypeScript)":    [r"from @mastra", r"mastra/core"],
 }
 
-TOOL_DECORATOR_PATTERNS = [r"@tool\b", r"@function_tool\b", r"@sk\.kernel_function", r"register_function\("]
+TOOL_DECORATOR_PATTERNS = [
+    r"@tool\b", r"@function_tool\b", r"@sk\.kernel_function",
+    r"register_function\(", r"@agent\.tool", r"@agent\.tool_plain",
+    r"FunctionTool\.from_defaults",
+]
 
 
 def _scan_text_files(root: Path, max_files: int = 800) -> tuple[list[Path], str]:

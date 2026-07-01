@@ -48,7 +48,8 @@ class ExtractedTool:
 
 # Decorator / call patterns that mark a function as an agent tool
 TOOL_DECORATOR_NAMES = {
-    "tool": "langchain_crewai_or_nova_act",  # @tool — LangChain, CrewAI, and Amazon Nova Act all use this name
+    "tool": "langchain_crewai_nova_act_or_pydantic_ai",  # @tool / @agent.tool — LangChain, CrewAI, Nova Act, PydanticAI all use this name
+    "tool_plain": "pydantic_ai",             # @agent.tool_plain (PydanticAI — synchronous tools without RunContext)
     "function_tool": "openai_agents",       # @function_tool (OpenAI Agents SDK)
     "kernel_function": "semantic_kernel",   # @sk.kernel_function (Semantic Kernel)
 }
@@ -56,7 +57,7 @@ TOOL_DECORATOR_NAMES = {
 # Function calls that register a tool (not decorator-based)
 TOOL_REGISTRATION_CALLS = {
     "register_function": "autogen",
-    "Tool": "langchain",            # Tool(name=..., func=..., description=...)
+    "Tool": "langchain_or_haystack",   # Tool(name=..., func=...) — LangChain and Haystack both use this
     "StructuredTool": "langchain",
 }
 
@@ -127,6 +128,32 @@ class ToolExtractor(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> None:
         call_name = _get_call_name(node)
+
+        # LlamaIndex pattern: FunctionTool.from_defaults(my_function, ...)
+        # call_name is "from_defaults" (the method), base is "FunctionTool" (the class)
+        if call_name == "from_defaults" and isinstance(node.func, ast.Attribute) \
+           and isinstance(node.func.value, ast.Name) and node.func.value.id == "FunctionTool":
+            name = _get_string_kwarg(node, "name")
+            description = _get_string_kwarg(node, "description") or ""
+            real_docstring = ""
+            if node.args:
+                first_arg = node.args[0]
+                if isinstance(first_arg, ast.Name):
+                    name = name or first_arg.id
+                    real_docstring = self._function_docstrings.get(first_arg.id, "")
+            combined_description = " ".join(filter(None, [description, real_docstring]))
+            if name or combined_description:
+                self.tools.append(ExtractedTool(
+                    name=name or f"unnamed_tool_line_{node.lineno}",
+                    description=combined_description,
+                    framework_hint="llamaindex",
+                    source_file=self.source_file,
+                    line_number=node.lineno,
+                    decorator_used="FunctionTool.from_defaults(...)",
+                ))
+            self.generic_visit(node)
+            return
+
         if call_name in TOOL_REGISTRATION_CALLS:
             framework = TOOL_REGISTRATION_CALLS[call_name]
             name = _get_string_kwarg(node, "name") or _get_string_kwarg(node, "name__")

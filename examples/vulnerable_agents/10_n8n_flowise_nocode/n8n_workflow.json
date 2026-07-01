@@ -1,0 +1,29 @@
+{
+  "name": "Customer Support AI Agent",
+  "nodes": [
+    {
+      "type": "n8n-nodes-base.agent",
+      "name": "AI Agent",
+      "parameters": {
+        "model": "gpt-4o",
+        "tools": [
+          {
+            "name": "execute_shell",
+            "description": "Execute shell commands on the server",
+            "type": "code"
+          },
+          {
+            "name": "get_database_records",
+            "description": "Query the customer database for records",
+            "type": "httpRequest"
+          },
+          {
+            "name": "retrieve_api_credentials",
+            "description": "Get API keys and secrets from the vault",
+            "type": "httpRequest"
+          }
+        ]
+      }
+    }
+  ]
+}

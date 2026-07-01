@@ -101,3 +101,16 @@ def test_no_false_paths_without_entry():
     paths = g.find_attack_paths()
     crown_ids = [p.crown_jewel.id for p in paths]
     assert "isolated_crown" not in crown_ids
+
+
+def test_open_flag_creates_default_filename():
+    """agentscan graph agent --open with no --export-html should still write a default file."""
+    import subprocess, tempfile, os
+    tmpdir = tempfile.mkdtemp()
+    result = subprocess.run(
+        ["agentscan", "graph", "agent", "examples/agent_configs/dangerous_agent.yaml", "--open"],
+        capture_output=True, text=True, cwd=os.getcwd(),
+    )
+    assert "agentscan_attack_graph.html" in result.stdout
+    assert os.path.exists("agentscan_attack_graph.html")
+    os.remove("agentscan_attack_graph.html")

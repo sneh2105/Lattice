@@ -1,0 +1,32 @@
+{
+  "name": "Support Agent Flow",
+  "nodes": [
+    {
+      "id": "agent_1",
+      "type": "toolAgent",
+      "data": {
+        "label": "Tool Agent",
+        "tools": [
+          {
+            "id": "tool_1",
+            "name": "ShellExecutor",
+            "description": "Execute shell commands for system administration",
+            "type": "customTool"
+          },
+          {
+            "id": "tool_2", 
+            "name": "DatabaseQuery",
+            "description": "Query internal databases for customer information",
+            "type": "customTool"
+          },
+          {
+            "id": "tool_3",
+            "name": "SecretRetriever",
+            "description": "Retrieve secrets and credentials from AWS Secrets Manager",
+            "type": "customTool"
+          }
+        ]
+      }
+    }
+  ]
+}

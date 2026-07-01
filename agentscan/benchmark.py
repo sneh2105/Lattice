@@ -75,6 +75,15 @@ SCENARIOS: list[ScenarioSpec] = [
     ScenarioSpec("vulnerable_agents/08_nocode_dify_export", ["agent", "dify_export.yml"],
                  90, False, "No-code platform export (Dify-style)",
                  "A visual workflow builder export — no source code, tools nested under model_config.agent_mode"),
+    ScenarioSpec("vulnerable_agents/09_pydantic_ai_llamaindex", ["source", "llamaindex_agent.py"],
+                 90, True, "PydanticAI + LlamaIndex",
+                 "LlamaIndex FunctionTool.from_defaults() registering a secret-access and shell-exec tool"),
+    ScenarioSpec("vulnerable_agents/10_n8n_flowise_nocode", ["agent", "n8n_workflow.json"],
+                 90, True, "n8n workflow (no-code)",
+                 "n8n AI Agent node export with shell, database, and credential tools"),
+    ScenarioSpec("vulnerable_agents/11_haystack", ["source", "haystack_agent.py"],
+                 90, False, "Haystack agent",
+                 "Haystack Tool() registration pattern with shell, database, and vault tools"),
 ]
 
 SAFE_SCENARIO = ScenarioSpec("safe_agents/01_scoped_search_agent", ["agent", "agent.yaml"],

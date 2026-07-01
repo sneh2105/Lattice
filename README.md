@@ -52,7 +52,7 @@ agentscan demo
   Safe scoped search agent
   ✓ Risk 0/100  ·  0 finding(s) — no false positives
 
-  ✓ AgentScan correctly identified all 8 attack patterns with zero false positives.
+  ✓ AgentScan correctly identified all 11 attack patterns with zero false positives.
 ```
 
 `agentscan benchmark` runs the same suite in a compact pass/fail table — see
@@ -184,7 +184,7 @@ blast radius.
 ## Evaluating AgentScan
 
 ```bash
-agentscan demo                  # zero-setup: scan 8 vulnerable agents + 1 safe baseline
+agentscan demo                  # zero-setup: scan 11 vulnerable agents + 1 safe baseline
 agentscan benchmark              # same suite, compact pass/fail table for CI
 agentscan doctor ./your-repo/    # then: detects frameworks, tools, MCP servers in YOUR code
 ```

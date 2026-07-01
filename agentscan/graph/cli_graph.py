@@ -55,10 +55,15 @@ def cmd_graph_agent(args):
             print(f"    Aggregate impact : {_col(RED, str(br['aggregate_impact']))}/100")
     print()
 
-    if args.export_html:
+    if args.export_html or getattr(args, "open_browser", False):
         html = render_html(graph, paths, title=f"AgentScan — {args.config}")
-        Path(args.export_html).write_text(html, encoding="utf-8")
-        print(f"  Interactive graph → {args.export_html}")
+        out_path = args.export_html or "agentscan_attack_graph.html"
+        Path(out_path).write_text(html, encoding="utf-8")
+        print(f"  Interactive graph → {out_path}")
+        if getattr(args, "open_browser", False):
+            import webbrowser
+            webbrowser.open(f"file://{Path(out_path).resolve()}")
+            print(f"  Opened in your default browser.")
         print()
 
 
@@ -313,6 +318,8 @@ def add_graph_parser(subparsers):
     agent_p = graph_sub.add_parser("agent", help="Build attack graph from agent config")
     agent_p.add_argument("config")
     agent_p.add_argument("--export-html", metavar="FILE")
+    agent_p.add_argument("--open", dest="open_browser", action="store_true",
+                         help="Open the attack graph directly in your browser (no server, no login)")
 
     # graph mcp
     mcp_p = graph_sub.add_parser("mcp", help="Full MCP trust + risk + graph analysis")
