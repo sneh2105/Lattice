@@ -131,7 +131,8 @@ def run_demo() -> int:
         print(f"  {c(DIM, spec.narrative)}")
         data = _run_scan(examples_root, spec)
         if data.get("error"):
-            print(f"  {c(RED, SYM_FAIL + " ERROR: " + str(data['error'])[:80])}\n")
+            err_msg = SYM_FAIL + " ERROR: " + str(data['error'])[:80]
+            print(f"  {c(RED, err_msg)}\n")
             all_ok = False
             continue
         risk = data.get("risk_score", 0)
