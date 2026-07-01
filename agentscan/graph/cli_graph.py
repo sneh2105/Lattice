@@ -63,9 +63,15 @@ def cmd_graph_agent(args):
         Path(out_path).write_text(html, encoding="utf-8")
         print(f"  Interactive graph -> {out_path}")
         if getattr(args, "open_browser", False):
-            import webbrowser
-            webbrowser.open(f"file://{Path(out_path).resolve()}")
-            print(f"  Opened in your default browser.")
+            try:
+                import webbrowser
+                abs_path = Path(out_path).resolve()
+                # Use pathlib to build a proper file:// URL on all platforms
+                url = abs_path.as_uri()
+                webbrowser.open(url)
+                print("  Opened in your default browser.")
+            except Exception:
+                print("  Could not open browser automatically. Open the file manually:")
         print()
 
 

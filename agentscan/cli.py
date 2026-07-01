@@ -120,7 +120,7 @@ Compliance:   agentscan compliance map   ./agent.yaml
         print(f"  Risk score   : {result.risk_score()}/100")
         print(f"  Findings     : {len(result.reportable_findings)}")
         print(f"  Attack paths : {len(result.attack_paths)}")
-        print(f"  Open in a browser: file://{Path(path).resolve()}")
+        print("  Open in a browser: " + Path(path).resolve().as_uri())
     else:
         output = _output(result, args.output, args.verbose)
         if args.output_file:

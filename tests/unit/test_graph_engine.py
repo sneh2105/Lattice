@@ -105,13 +105,16 @@ def test_no_false_paths_without_entry():
 
 
 def test_open_flag_creates_default_filename():
-    """agentscan graph agent --open with no --export-html should still write a default file."""
-    import subprocess, tempfile, os
-    tmpdir = tempfile.mkdtemp()
+    """agentscan graph agent --open should write agentscan_attack_graph.html to cwd."""
+    import subprocess, os
+    from pathlib import Path
+    # Run from the repo root so the file lands in a known location
+    repo_root = Path(__file__).parent.parent.parent
     result = subprocess.run(
         ["agentscan", "graph", "agent", "examples/agent_configs/dangerous_agent.yaml", "--open"],
-        capture_output=True, text=True, encoding="utf-8", cwd=os.getcwd(),
+        capture_output=True, text=True, encoding="utf-8", cwd=str(repo_root),
     )
-    assert "agentscan_attack_graph.html" in result.stdout
-    assert os.path.exists("agentscan_attack_graph.html")
-    os.remove("agentscan_attack_graph.html")
+    expected_file = repo_root / "agentscan_attack_graph.html"
+    assert result.returncode == 0, f"Command failed: {result.stderr[:200]}"
+    assert expected_file.exists(), f"File not found: {expected_file}"
+    expected_file.unlink()  # clean up
