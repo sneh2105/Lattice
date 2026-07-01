@@ -9,7 +9,7 @@ it shows you the complete chain from a malicious prompt to a stolen credential.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-140%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-151%20passing-brightgreen)](tests/)
 
 </div>
 
@@ -19,19 +19,19 @@ it shows you the complete chain from a malicious prompt to a stolen credential.
 
 ✅ LangChain · ✅ LangGraph · ✅ CrewAI · ✅ AutoGen · ✅ OpenAI Agents SDK ·
 ✅ Google ADK · ✅ Semantic Kernel · ✅ Amazon Bedrock Agents · ✅ Amazon Nova Act ·
-✅ MCP · ✅ No framework at all (raw Anthropic/OpenAI tool schemas) ·
-✅ No-code platform exports (Dify-style)
+✅ PydanticAI · ✅ LlamaIndex · ✅ Haystack · ✅ MCP ·
+✅ n8n · ✅ Flowise · ✅ Dify · ✅ No framework (raw Anthropic/OpenAI schemas)
 
-Source code scanning (`agentscan source`) covers all of the above via AST analysis.
-Declarative config scanning (`agentscan agent`) covers YAML/JSON agent configs and
-no-code visual builder exports. MCP servers are scanned directly via `agentscan mcp`,
-live or from a manifest.
+`agentscan source` scans Python agent code via AST — `@tool`, `@agent.tool`,
+`@agent.tool_plain`, `@function_tool`, `@sk.kernel_function`, `BaseTool` subclasses,
+`FunctionTool.from_defaults()`, `register_function()`, and raw
+`TOOLS = [{"name": ..., "input_schema": {...}}]` API schemas.
+`agentscan agent` scans YAML/JSON configs including Dify, n8n, and Flowise workflow
+exports. `agentscan mcp` scans MCP servers live or from a manifest.
 
-**Not yet covered**: AI gateway configuration (Bifrost, TrueFoundry, Cloudflare AI
-Gateway) — these route/observe traffic but don't define agent tools themselves, so
-the application code on either side of the gateway is what AgentScan scans; the
-gateway's own governance config (virtual keys, routing rules) isn't parsed yet. See
-[`docs/ADVANCED.md`](docs/ADVANCED.md) for details.
+**Not yet covered:** Mastra (TypeScript — no TS AST parser yet) and AI gateway
+config (Bifrost, TrueFoundry, Cloudflare AI Gateway governance rules).
+See [`docs/ADVANCED.md`](docs/ADVANCED.md).
 
 ## Try it with zero setup
 
