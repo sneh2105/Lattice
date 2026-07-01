@@ -1,6 +1,7 @@
 """Runtime, prompt flow, and identity CLI commands."""
 
 from __future__ import annotations
+import agentscan._compat  # force UTF-8 on Windows
 import json, sys
 from pathlib import Path
 
@@ -60,7 +61,7 @@ def _render_runtime(report, args):
     if report.anomalies:
         print(_col(ORANGE+BOLD, "  Anomalies:"))
         for a in report.anomalies:
-            print(f"    {_col(ORANGE, '⚠')} {a}")
+            print(f"    {_col(ORANGE, '[!]')} {a}")
         print()
 
     if report.attack_paths:
@@ -70,7 +71,7 @@ def _render_runtime(report, args):
             print(f"  Score: {path.composite_score:.0f}  MITRE: {', '.join(path.mitre_atlas)}")
             print(f"  Chain ({len(path.events)} events):")
             for e in path.events:
-                print(f"    {_col(DIM, '→')} {e.summary()}")
+                print(f"    {_col(DIM, '->')} {e.summary()}")
         print()
 
     if report.findings:
@@ -86,7 +87,7 @@ def _render_runtime(report, args):
 
     print(_col(BOLD, "  Event Timeline:"))
     for entry in report.event_timeline:
-        risk = _col(RED, '!') if entry.get("risk_signals") else _col(DIM, '·')
+        risk = _col(RED, '!') if entry.get("risk_signals") else _col(DIM, '-')
         type_str = _col(CYAN, entry['type'][:15])
         summ_str = _col(DIM, entry['summary'][:70])
         print(f"  {risk} t+{entry['t_ms']:>6}ms  {type_str:<30}  {summ_str}")
@@ -148,13 +149,13 @@ def _render_prompt_flow(report):
     print()
 
     if report.injection_reach:
-        print(_col(RED+BOLD, f"  ⚠ Injection-reachable stages: {', '.join(report.injection_reach)}"))
+        print(_col(RED+BOLD, f"  [!] Injection-reachable stages: {', '.join(report.injection_reach)}"))
     if report.secret_exposure:
-        print(_col(RED+BOLD, f"  ⚠ Secrets found at: {', '.join(report.secret_exposure)}"))
+        print(_col(RED+BOLD, f"  [!] Secrets found at: {', '.join(report.secret_exposure)}"))
     if report.rag_override_risk:
-        print(_col(ORANGE, "  ⚠ RAG/memory can override system instructions"))
+        print(_col(ORANGE, "  [!] RAG/memory can override system instructions"))
     if report.policy_bypass_risk:
-        print(_col(ORANGE, "  ⚠ Policy bypass risk: injection can reach tools"))
+        print(_col(ORANGE, "  [!] Policy bypass risk: injection can reach tools"))
     print()
 
     if report.findings:
@@ -187,7 +188,7 @@ def _render_identity(ig):
     rc = _risk_col(ig.risk_score)
 
     print(f"\n  {_col(BOLD+CYAN, 'Agent Identity Graph')} — {ig.agent_name}\n")
-    risk_bar = "█" * int(ig.risk_score/5) + "░" * (20 - int(ig.risk_score/5))
+    risk_bar = "#" * int(ig.risk_score/5) + "." * (20 - int(ig.risk_score/5))
     print(f"  Risk score  {_col(rc, f'{ig.risk_score:3d}/100')}  {_col(rc, risk_bar)}\n")
 
     # Yes/No answer panel
@@ -206,10 +207,10 @@ def _render_identity(ig):
         ("Permissions scoped/minimal",    ig.permissions_scoped),
     ]
     for label, val in checks:
-        icon = _col(RED, "✗ YES") if val and label != "Permissions scoped/minimal" and label != "Has explicit identity" \
-               else _col(GREEN, "✓ YES") if val \
-               else _col(GREEN, "✓ NO") if not val and label != "Has explicit identity" and label != "Permissions scoped/minimal" \
-               else _col(ORANGE, "✗ NO")
+        icon = _col(RED, "[X] YES") if val and label != "Permissions scoped/minimal" and label != "Has explicit identity" \
+               else _col(GREEN, "[OK] YES") if val \
+               else _col(GREEN, "[OK] NO") if not val and label != "Has explicit identity" and label != "Permissions scoped/minimal" \
+               else _col(ORANGE, "[X] NO")
         print(f"  {icon:<20} {label}")
     print()
 
@@ -246,7 +247,7 @@ def _render_identity(ig):
             print(f"  {_col(DIM, f.explanation[:200])}")
             print(f"  {_col(GREEN, 'Fix:')} {f.remediation[:160]}\n")
 
-    print(_col(DIM, f"  AgentScan v0.3.0 · identity graph\n"))
+    print(_col(DIM, f"  AgentScan v0.3.0 - identity graph\n"))
 
 
 def add_runtime_parser(subparsers):
@@ -315,7 +316,7 @@ def cmd_goal_integrity(args):
     else:
         print(f"  {_col(DIM, 'No declared goal extracted from session')}\n")
 
-    bar = "█" * int(report.integrity_score/5) + "░" * (20 - int(report.integrity_score/5))
+    bar = "#" * int(report.integrity_score/5) + "." * (20 - int(report.integrity_score/5))
     print(f"  Integrity score  {_col(sc, f'{report.integrity_score:3d}/100')}  {_col(sc, bar)}\n")
 
     print(f"  Tool calls analysed       : {report.tool_calls_analysed}")

@@ -5,6 +5,12 @@ Designed to be screenshot-worthy and shareable.
 
 from __future__ import annotations
 import sys
+import agentscan._compat  # force UTF-8 on Windows
+from agentscan._compat import (
+    SYM_OK, SYM_FAIL, SYM_WARN, SYM_CRITICAL, SYM_HIGH, SYM_MEDIUM, SYM_INFO,
+    SYM_BLOCK_FULL, SYM_BLOCK_EMPTY, SYM_BULLET, SYM_ARROW,
+    BOX_TL, BOX_TR, BOX_BL, BOX_BR, BOX_SIDE, BOX_LINE, DASH, _supports_unicode
+)
 from agentscan.models import AttackPath, Finding, ScanResult, Severity, ConfidenceLevel
 
 # ANSI colours
@@ -28,10 +34,10 @@ SEVERITY_COLOUR = {
 }
 
 SEVERITY_ICON = {
-    Severity.CRITICAL: "✗",
+    Severity.CRITICAL: SYM_CRITICAL,
     Severity.HIGH: "!",
     Severity.MEDIUM: "▲",
-    Severity.LOW: "·",
+    Severity.LOW: SYM_BULLET,
     Severity.INFO: "ℹ",
 }
 
@@ -71,7 +77,7 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
 
     # ── Error ────────────────────────────────────────────────────────────
     if result.error:
-        lines.append(_col(RED, f"  ✗ Error: {result.error}"))
+        lines.append(_col(RED, f"  {SYM_FAIL} Error: {result.error}"))
         lines.append("")
         return "\n".join(lines)
 
@@ -87,7 +93,7 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
         score_col = GREEN
 
     bar_filled = int(score / 5)
-    bar = "█" * bar_filled + "░" * (20 - bar_filled)
+    bar = SYM_BLOCK_FULL * bar_filled + SYM_BLOCK_EMPTY * (20 - bar_filled)
     lines.append(_col(BOLD, f"  Risk score  ") + _col(score_col, f"{score:3d}/100  ") + _col(score_col, bar))
     lines.append("")
 
@@ -101,7 +107,7 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
     for sev in [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW]:
         if counts[sev]:
             parts.append(_col(SEVERITY_COLOUR[sev], f"{counts[sev]} {sev.value}"))
-    lines.append("  Findings: " + "  ".join(parts) if parts else "  " + _col(GREEN, "✓ No reportable findings"))
+    lines.append("  Findings: " + "  ".join(parts) if parts else "  " + _col(GREEN, f"{SYM_OK} No reportable findings"))
 
     if result.attack_paths:
         lines.append(_col(RED + BOLD, f"  Attack paths: {len(result.attack_paths)} critical chain(s) found"))
@@ -109,20 +115,20 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
 
     # ── Attack paths (most important, shown first) ───────────────────────
     if result.attack_paths:
-        lines.append(_col(BOLD + RED, "  ╔══ ATTACK PATHS ══════════════════════════════════════════╗"))
+        lines.append(_col(BOLD + RED, f"  {BOX_TL}{BOX_LINE*2} ATTACK PATHS {BOX_LINE*42}{BOX_TR}"))
         for i, path in enumerate(result.attack_paths, 1):
-            lines.append(_col(RED, f"  ║  {i}. {path.title}"))
-            lines.append(_col(DIM, f"  ║     Entry : {path.entry_point}"))
-            lines.append(_col(DIM, f"  ║     Impact: {path.impact}"))
+            lines.append(_col(RED, f"  {BOX_SIDE}  {i}. {path.title}"))
+            lines.append(_col(DIM, f"  {BOX_SIDE}     Entry : {path.entry_point}"))
+            lines.append(_col(DIM, f"  {BOX_SIDE}     Impact: {path.impact}"))
             # Show chain
             step_names = [s.title.split("'")[1] if "'" in s.title else s.title[:40] for s in path.steps[:4]]
             if step_names:
                 chain = " → ".join(step_names)
-                lines.append(_col(ORANGE, f"  ║     Chain : {chain}"))
+                lines.append(_col(ORANGE, f"  {BOX_SIDE}     Chain : {chain}"))
             if path.mitre_atlas:
-                lines.append(_col(DIM, f"  ║     ATLAS : {', '.join(path.mitre_atlas)}"))
-            lines.append(_col(DIM, "  ║"))
-        lines.append(_col(BOLD + RED, "  ╚═══════════════════════════════════════════════════════════╝"))
+                lines.append(_col(DIM, f"  {BOX_SIDE}     ATLAS : {', '.join(path.mitre_atlas)}"))
+            lines.append(_col(DIM, f"  {BOX_SIDE}"))
+        lines.append(_col(BOLD + RED, f"  {BOX_BL}{BOX_LINE*59}{BOX_BR}"))
         lines.append("")
 
     # ── Individual findings ──────────────────────────────────────────────
@@ -176,7 +182,7 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
                 lines.append(_col(DIM, f"  CWE: {', '.join(finding.cwe)}"))
 
             lines.append("")
-            lines.append(_col(DIM, "  " + "·" * 66))
+            lines.append(_col(DIM, f"  " + SYM_BULLET * 66))
             lines.append("")
 
     # ── Metadata ────────────────────────────────────────────────────────
@@ -187,7 +193,7 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
         lines.append("")
 
     # ── Footer ───────────────────────────────────────────────────────────
-    lines.append(_col(DIM, "  AgentScan v0.1.0 · github.com/sneh2105/agentscan"))
+    lines.append(_col(DIM, "  AgentScan v0.1.0 - github.com/sneh2105/agentscan"))
     lines.append("")
     return "\n".join(lines)
 

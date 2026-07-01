@@ -1,5 +1,6 @@
 """AgentScan CLI v0.3.0"""
 from __future__ import annotations
+import agentscan._compat   # force UTF-8 stdout/stderr before any output — Windows fix
 import argparse, sys
 from pathlib import Path
 

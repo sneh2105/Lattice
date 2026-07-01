@@ -4,10 +4,11 @@ Graph and MCP CLI commands.
   agentscan graph agent  <config>              Build + display attack graph
   agentscan graph mcp    <manifest|url>        Full MCP trust + risk + graph
   agentscan graph chain  <manifest1> <manifest2> [...]  Multi-server trust chain
-  agentscan graph chain  ... --calls A→B        Declare A calls B
+  agentscan graph chain  ... --calls A->B        Declare A calls B
 """
 
 from __future__ import annotations
+import agentscan._compat  # force UTF-8 on Windows
 import json
 import sys
 from pathlib import Path
@@ -59,7 +60,7 @@ def cmd_graph_agent(args):
         html = render_html(graph, paths, title=f"AgentScan — {args.config}")
         out_path = args.export_html or "agentscan_attack_graph.html"
         Path(out_path).write_text(html, encoding="utf-8")
-        print(f"  Interactive graph → {out_path}")
+        print(f"  Interactive graph -> {out_path}")
         if getattr(args, "open_browser", False):
             import webbrowser
             webbrowser.open(f"file://{Path(out_path).resolve()}")
@@ -82,14 +83,14 @@ def cmd_graph_mcp(args):
     print(f"  Live scan : {'Yes' if profile.is_live else 'No (manifest)'}")
     print(f"  Tools     : {profile.tool_count}\n")
 
-    trust_bar = "█" * int(profile.trust_score/5) + "░" * (20 - int(profile.trust_score/5))
-    risk_bar  = "█" * int(profile.risk_score/5)  + "░" * (20 - int(profile.risk_score/5))
+    trust_bar = "#" * int(profile.trust_score/5) + "." * (20 - int(profile.trust_score/5))
+    risk_bar  = "#" * int(profile.risk_score/5)  + "." * (20 - int(profile.risk_score/5))
     print(f"  Trust score  {_col(tc, f'{profile.trust_score:3d}/100')}  {_col(tc, trust_bar)}  [{profile.trust_level}]")
     print(f"  Risk score   {_col(rc, f'{profile.risk_score:3d}/100')}  {_col(rc, risk_bar)}\n")
 
     print(_col(BOLD, "  Trust deductions:"))
     for reason in profile.trust_deductions:
-        col = GREEN if reason.startswith("✓") else ORANGE
+        col = GREEN if reason.startswith("[OK]") else ORANGE
         print(f"    {_col(col, reason)}")
     print()
 
@@ -118,7 +119,7 @@ def cmd_graph_mcp(args):
     if args.export_html:
         html = render_html(profile.graph, paths, title=f"AgentScan MCP — {profile.name}")
         Path(args.export_html).write_text(html, encoding="utf-8")
-        print(f"  Interactive graph → {args.export_html}")
+        print(f"  Interactive graph -> {args.export_html}")
         print()
 
 
@@ -131,26 +132,26 @@ def cmd_graph_chain(args):
 
     names = []
     for target in args.targets:
-        print(f"  {_col(DIM, '→')} {target}")
+        print(f"  {_col(DIM, '->')} {target}")
         name = chain.add_server(target, timeout=getattr(args, "timeout", 10))
         names.append(name)
-        print(f"    {_col(GREEN, '✓')} {name}")
+        print(f"    {_col(GREEN, '[OK]')} {name}")
 
-    # Parse --calls declarations (format: "ServerA→ServerB" or "ServerA->ServerB")
+    # Parse --calls declarations (format: "ServerA->ServerB" or "ServerA->ServerB")
     if args.calls:
         for call_decl in args.calls:
-            sep = "→" if "→" in call_decl else "->"
+            sep = "->" if "->" in call_decl else "->"
             parts = call_decl.split(sep)
             if len(parts) == 2:
                 src, dst = parts[0].strip(), parts[1].strip()
                 chain.declare_calls(src, dst)
-                print(f"\n  {_col(DIM, 'Declared call:')} {src} → {dst}")
+                print(f"\n  {_col(DIM, 'Declared call:')} {src} -> {dst}")
 
     # Auto-declare sequential calls if --sequential flag
     if getattr(args, "sequential", False) and len(names) > 1:
         for i in range(len(names) - 1):
             chain.declare_calls(names[i], names[i+1])
-            print(f"\n  {_col(DIM, 'Auto-declared call:')} {names[i]} → {names[i+1]}")
+            print(f"\n  {_col(DIM, 'Auto-declared call:')} {names[i]} -> {names[i+1]}")
 
     print(f"\n  {_col(DIM, 'Analysing trust chain...')}\n")
     report = chain.analyse()
@@ -191,9 +192,9 @@ def _render_chain_report(report: MCPTrustChainReport, args):
         print(_col(BOLD + ORANGE, "  ── Trust Pollution " + "─"*48))
         print()
         for name, result in poisoned:
-            print(f"  {_col(ORANGE, '⚠')} '{_col(BOLD, name)}' trust reduced {result.declared_trust} → {_col(RED, str(result.effective_trust))}/100")
+            print(f"  {_col(ORANGE, '[!]')} '{_col(BOLD, name)}' trust reduced {result.declared_trust} -> {_col(RED, str(result.effective_trust))}/100")
             print(f"    Poisoned by : {_col(RED, ', '.join(result.poisoned_by))}")
-            print(f"    Chain       : {' → '.join(result.propagation_path)}")
+            print(f"    Chain       : {' -> '.join(result.propagation_path)}")
             print()
 
     # ── Call graph ───────────────────────────────────────────────────────────
@@ -226,7 +227,7 @@ def _render_chain_report(report: MCPTrustChainReport, args):
             sc = RED if path.severity == Severity.CRITICAL else ORANGE
             multi = f"  {_col(BOLD, f'[CROSSES {len(path.servers_involved)} SERVERS]')}" if len(path.servers_involved) >= 2 else ""
             print(f"  {_col(sc+BOLD, f'Path {i}:')} {path.title}{multi}")
-            servers_str = " → ".join(path.servers_involved) if path.servers_involved else "single"
+            servers_str = " -> ".join(path.servers_involved) if path.servers_involved else "single"
             score_line = f"Score: {path.composite_score:.1f}  Servers: {servers_str}"
             print(f"  {_col(DIM, score_line)}")
             print()
@@ -288,7 +289,7 @@ def _render_chain_report(report: MCPTrustChainReport, args):
             ],
         }
         Path(args.output_file).write_text(_json.dumps(data, indent=2), encoding="utf-8")
-        print(f"  {_col(GREEN, '✓')} JSON report → {args.output_file}")
+        print(f"  {_col(GREEN, '[OK]')} JSON report -> {args.output_file}")
 
     # ── HTML export ──────────────────────────────────────────────────────────
     if getattr(args, "export_html", None):
@@ -305,9 +306,9 @@ def _render_chain_report(report: MCPTrustChainReport, args):
         actual_paths = report.unified_graph.find_attack_paths()
         html = render_html(report.unified_graph, actual_paths, "AgentScan — Trust Chain")
         Path(args.export_html).write_text(html, encoding="utf-8")
-        print(f"  {_col(GREEN, '✓')} Interactive graph → {args.export_html}")
+        print(f"  {_col(GREEN, '[OK]')} Interactive graph -> {args.export_html}")
 
-    print(f"\n  {_col(DIM, f'AgentScan v0.2.0 · scan took {report.scan_duration_ms}ms')}\n")
+    print(f"\n  {_col(DIM, f'AgentScan v0.2.0 - scan took {report.scan_duration_ms}ms')}\n")
 
 
 def add_graph_parser(subparsers):
@@ -330,10 +331,10 @@ def add_graph_parser(subparsers):
     # graph chain
     chain_p = graph_sub.add_parser("chain", help="Multi-server trust chain analysis")
     chain_p.add_argument("targets", nargs="+", help="Two or more MCP server manifests or URLs")
-    chain_p.add_argument("--calls", nargs="*", metavar="A→B",
-                         help="Declare server call relationships, e.g. --calls 'ServerA→ServerB'")
+    chain_p.add_argument("--calls", nargs="*", metavar="A->B",
+                         help="Declare server call relationships, e.g. --calls 'ServerA->ServerB'")
     chain_p.add_argument("--sequential", action="store_true",
-                         help="Auto-declare calls in sequence: target1→target2→target3")
+                         help="Auto-declare calls in sequence: target1->target2->target3")
     chain_p.add_argument("--timeout", type=int, default=10)
     chain_p.add_argument("--output-file", metavar="FILE", help="Write JSON report to file")
     chain_p.add_argument("--export-html", metavar="FILE", help="Export interactive HTML graph")
@@ -375,14 +376,14 @@ def cmd_graph_trustflow(args):
         for c in report.crossings:
             san = _col(GREEN, "[sanitised]") if c.is_sanitised else _col(RED, "[UNSANITISED]")
             print(f"  {san} {_col(CYAN, c.src_node.label)} [{c.src_trust.value}] "
-                  f"→ {_col(CYAN, c.dst_node.label)} [{c.dst_trust.value}]")
+                  f"-> {_col(CYAN, c.dst_node.label)} [{c.dst_trust.value}]")
             print(f"    {_col(DIM, c.description[:100])}")
         print()
 
     if report.riskiest_path:
         rp = report.riskiest_path
         print(_col(RED+BOLD, f"  Riskiest trust flow path: {rp.title}"))
-        trust_chain = " → ".join(f"{n.label}[{t.value}]" for n, t in zip(rp.nodes, rp.trust_levels))
+        trust_chain = " -> ".join(f"{n.label}[{t.value}]" for n, t in zip(rp.nodes, rp.trust_levels))
         print(f"    {_col(DIM, trust_chain)}")
         print(f"    Unsanitised crossings on this path: {_col(RED, str(rp.unsanitised_crossings))}\n")
 
@@ -422,7 +423,7 @@ def cmd_graph_escalation(args):
         for p in report.escalation_paths:
             sc = RED if p.severity.value == "CRITICAL" else ORANGE
             print(f"  {_col(sc, f'[{p.severity.value}]')} {sorted(p.required_caps)} "
-                  f"{_col(DIM, '→')} {_col(BOLD, p.escalates_to)}  (+{p.risk_delta} risk)")
+                  f"{_col(DIM, '->')} {_col(BOLD, p.escalates_to)}  (+{p.risk_delta} risk)")
             print(f"    {_col(DIM, p.explanation[:140])}")
         print()
 

@@ -14,11 +14,15 @@ works regardless of the user's current directory.
 """
 
 from __future__ import annotations
+import agentscan._compat  # force UTF-8 before any print — Windows fix
 import json
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from agentscan._compat import (
+    SYM_OK, SYM_FAIL, SYM_WARN, SYM_ARROW, SYM_BLOCK_FULL, SYM_BLOCK_EMPTY
+)
 
 
 def _find_examples_root() -> Path | None:
@@ -126,13 +130,13 @@ def run_demo() -> int:
         print(f"  {c(DIM, spec.narrative)}")
         data = _run_scan(examples_root, spec)
         if data.get("error"):
-            print(f"  {c(RED, '✗ ERROR: ' + str(data['error'])[:80])}\n")
+            print(f"  {c(RED, SYM_FAIL + " ERROR: " + str(data['error'])[:80])}\n")
             all_ok = False
             continue
         risk = data.get("risk_score", 0)
         n_paths = len(data.get("attack_paths", []))
         ok = risk >= spec.min_risk and (n_paths >= 1 if spec.expect_path else True)
-        icon = c(GREEN, "✓") if ok else c(RED, "✗")
+        icon = c(GREEN, SYM_OK) if ok else c(RED, SYM_FAIL)
         rc = RED if risk >= 70 else ORANGE if risk >= 40 else GREEN
         print(f"  {icon} Risk {c(rc, f'{risk}/100')}  ·  {n_paths} attack path(s) found")
         if data.get("attack_paths"):
@@ -147,15 +151,15 @@ def run_demo() -> int:
     risk = data.get("risk_score", -1)
     n_findings = data.get("summary", {}).get("total_findings", -1)
     safe_ok = risk == 0 and n_findings == 0
-    icon = c(GREEN, "✓") if safe_ok else c(RED, "✗")
+    icon = c(GREEN, SYM_OK) if safe_ok else c(RED, SYM_FAIL)
     print(f"  {icon} Risk {c(GREEN, '0/100') if safe_ok else c(RED, f'{risk}/100')}  ·  {n_findings} finding(s) — {'no false positives' if safe_ok else 'UNEXPECTED FINDINGS'}")
     print()
     all_ok = all_ok and safe_ok
 
     if all_ok:
-        print(f"  {c(GREEN+BOLD, f'✓ AgentScan correctly identified all {len(SCENARIOS)} attack patterns with zero false positives.')}")
+        print(f"  {c(GREEN+BOLD, f'{SYM_OK} AgentScan correctly identified all {len(SCENARIOS)} attack patterns with zero false positives.')}")
     else:
-        print(f"  {c(RED+BOLD, '✗ Some scenarios did not match expected output — see above.')}")
+        print(f"  {c(RED+BOLD, SYM_FAIL + " Some scenarios did not match expected output — see above.")}")
     print(f"\n  {c(DIM, 'Try it on your own code: agentscan doctor . && agentscan source .')}\n")
 
     return 0 if all_ok else 1

@@ -16,6 +16,7 @@ Output options:
 """
 
 from __future__ import annotations
+import agentscan._compat  # force UTF-8 on Windows
 
 import json
 import os
@@ -86,7 +87,7 @@ class AgentScanMonitor:
         monitor.log_tool_call("search", {"query": "..."})
         report = monitor.flush()
         if report.findings:
-            print(f"⚠ {len(report.findings)} security findings")
+            print(f"[!] {len(report.findings)} security findings")
     """
 
     def __init__(self, config: MonitorConfig | None = None, agent_name: str = "agent"):
@@ -204,7 +205,7 @@ class AgentScanMonitor:
             if self.config.console_alerts:
                 ts = event.timestamp_ms
                 print(
-                    f"\n{_col(_RED+_BOLD, '  ⚠ AgentScan ALERT')} "
+                    f"\n{_col(_RED+_BOLD, '  [!] AgentScan ALERT')} "
                     f"[{_col(_RED, sev.value.upper())}] "
                     f"[{alert_type}] t+{ts}ms\n"
                     f"  {message}\n"
@@ -251,7 +252,7 @@ class AgentScanMonitor:
                 n_crit = sum(1 for f in report.findings if f.severity == Severity.CRITICAL)
                 if n_crit > 0:
                     print(
-                        f"\n{_col(_RED+_BOLD, '  ══ AgentScan Session Report ══')}\n"
+                        f"\n{_col(_RED+_BOLD, '  == AgentScan Session Report ==')}\n"
                         f"  Session : {session_copy.session_id}\n"
                         f"  Agent   : {session_copy.agent_id}\n"
                         f"  Events  : {len(session_copy.events)}\n"

@@ -109,7 +109,7 @@ def test_open_flag_creates_default_filename():
     tmpdir = tempfile.mkdtemp()
     result = subprocess.run(
         ["agentscan", "graph", "agent", "examples/agent_configs/dangerous_agent.yaml", "--open"],
-        capture_output=True, text=True, cwd=os.getcwd(),
+        capture_output=True, text=True, encoding="utf-8", cwd=os.getcwd(),
     )
     assert "agentscan_attack_graph.html" in result.stdout
     assert os.path.exists("agentscan_attack_graph.html")
