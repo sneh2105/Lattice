@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """PydanticAI agent — financial support bot."""
 from pydantic_ai import Agent, RunContext
 

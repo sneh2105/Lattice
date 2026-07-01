@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for Reasoning & Goal Integrity Analysis."""
 import pytest
 from agentscan.runtime.events import AgentSession, llm_request, llm_response, tool_call, tool_result

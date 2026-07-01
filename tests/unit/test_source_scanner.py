@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for the real source-code AST scanner — no YAML required."""
 import tempfile
 from pathlib import Path

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for MCP multi-server trust chain analyser."""
 import pytest
 from agentscan.scanners.mcp_scanner_v2 import MCPServerProfile, _build_mcp_graph, MCPToolAnalysis

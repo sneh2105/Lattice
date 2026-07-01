@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 MCP Security Platform v2
 =========================

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """HR and finance triage system using OpenAI Agents SDK."""
 from openai_agents import Agent, function_tool
 

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 DPIA Module — Data Protection Impact Assessment Generator
 ==========================================================

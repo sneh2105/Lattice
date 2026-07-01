@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Compliance CLI extension — adds 'agentscan compliance' subcommands.
 

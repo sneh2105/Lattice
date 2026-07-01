@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Runtime, prompt flow, and identity CLI commands."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 AI Security Query Language (AI-SQL)
 ======================================

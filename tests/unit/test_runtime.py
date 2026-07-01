@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for runtime analyser, prompt flow, and identity graph."""
 import pytest
 from agentscan.runtime.events import (

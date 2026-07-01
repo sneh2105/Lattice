@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for agentscan doctor — environment detection."""
 import tempfile
 from pathlib import Path

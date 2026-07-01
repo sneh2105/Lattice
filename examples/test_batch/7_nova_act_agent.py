@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Amazon Nova Act browser automation agent — example pattern from AWS docs.
 Nova Act uses the same @tool decorator convention as LangChain/CrewAI.

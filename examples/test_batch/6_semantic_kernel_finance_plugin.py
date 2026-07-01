@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Finance reporting plugin for Semantic Kernel."""
 import semantic_kernel as sk
 

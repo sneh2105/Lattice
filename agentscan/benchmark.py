@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 agentscan demo / agentscan benchmark
 ======================================

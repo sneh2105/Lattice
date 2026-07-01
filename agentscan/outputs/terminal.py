@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Terminal output renderer — produces beautiful, informative CLI output.
 Designed to be screenshot-worthy and shareable.

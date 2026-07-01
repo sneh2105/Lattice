@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for the AI supply chain scanner."""
 import pytest
 from agentscan.scanners.supply_chain_scanner import scan_supply_chain

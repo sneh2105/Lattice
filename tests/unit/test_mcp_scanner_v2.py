@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for MCP Security Platform v2."""
 import json
 import tempfile

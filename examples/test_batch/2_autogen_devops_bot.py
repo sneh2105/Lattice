@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """DevOps automation bot — handles deployments via AutoGen."""
 import autogen
 

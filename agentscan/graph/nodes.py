@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Graph Node and Edge definitions for the AI Attack Graph Engine.
 

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 AgentScan — Security scanner for AI agents, MCP servers, and AI supply chain artifacts.
 """

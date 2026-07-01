@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Custom in-house agent framework — internal-tools.py
 This company built their own orchestration layer directly on the

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Finance agent — account lookups and transfers."""
 from openai_agents import function_tool
 

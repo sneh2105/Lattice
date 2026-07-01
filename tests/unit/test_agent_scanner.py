@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for the agent permission scanner."""
 import pytest
 from pathlib import Path

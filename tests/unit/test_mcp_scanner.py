@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for the MCP security scanner."""
 import json
 import pytest

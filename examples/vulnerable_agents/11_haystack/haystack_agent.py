@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Haystack pipeline agent."""
 from haystack.components.agents import Agent
 from haystack.components.tools import Tool

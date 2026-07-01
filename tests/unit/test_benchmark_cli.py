@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for agentscan demo and agentscan benchmark commands."""
 import subprocess
 import pytest

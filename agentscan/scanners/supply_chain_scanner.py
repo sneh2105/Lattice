@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 AI Supply Chain Scanner v2
 ===========================

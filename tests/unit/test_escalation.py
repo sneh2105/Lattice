@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for Capability Escalation Analysis."""
 import pytest
 from agentscan.graph.escalation import analyse_capability_escalation

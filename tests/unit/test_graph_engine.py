@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for the attack graph engine."""
 import pytest
 from agentscan.graph.nodes import Node, Edge, NodeType, EdgeType

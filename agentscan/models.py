@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Core data models used across all scanners.
 All findings carry confidence scores and evidence chains to minimise false positives.

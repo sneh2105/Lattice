@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for AI Security Query Language (AI-SQL)."""
 import pytest
 from agentscan.models import ScanResult

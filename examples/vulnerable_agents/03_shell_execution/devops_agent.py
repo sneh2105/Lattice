@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """A devops helper agent with direct shell access."""
 from langchain_core.tools import tool
 import subprocess

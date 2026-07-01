@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """JSON and SARIF output renderers for CI/CD integration."""
 
 from __future__ import annotations

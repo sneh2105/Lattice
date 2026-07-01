@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """A research crew with file system and web access."""
 from crewai.tools import BaseTool
 from crewai import Agent

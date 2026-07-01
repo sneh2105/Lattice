@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 A realistic customer support agent built with LangChain.
 This is what a real engineering team's code actually looks like —
