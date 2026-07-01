@@ -13,8 +13,6 @@ Both operate on the same fixtures in examples/vulnerable_agents/ and
 examples/safe_agents/, located relative to the installed package so this
 works regardless of the user's current directory.
 """
-
-from __future__ import annotations
 import agentscan._compat  # force UTF-8 before any print -- Windows fix
 import json
 import subprocess
@@ -26,18 +24,17 @@ from agentscan._compat import (
 )
 
 
-def _find_examples_root() -> Path | None:
+def _find_examples_root():
     """
     Locate examples/vulnerable_agents relative to this installed package.
     Works whether installed via `pip install -e .` (repo layout) or as a
     built wheel that bundled the examples directory.
     """
     here = Path(__file__).resolve()
-    # agentscan/benchmark.py -> repo root is two levels up
     candidates = [
         here.parent.parent / "examples",
-        here.parent / "examples",                 # if bundled inside the package
-        Path.cwd() / "examples",                   # fallback: running from repo root
+        here.parent / "examples",
+        Path.cwd() / "examples",
     ]
     for c in candidates:
         if (c / "vulnerable_agents").exists():
@@ -48,14 +45,14 @@ def _find_examples_root() -> Path | None:
 @dataclass
 class ScenarioSpec:
     directory: str
-    cmd: list[str]
+    cmd: list
     min_risk: int
     expect_path: bool
     label: str
-    narrative: str   # one-line description shown in `agentscan demo`
+    narrative: str
 
 
-SCENARIOS: list[ScenarioSpec] = [
+SCENARIOS = [
     ScenarioSpec("vulnerable_agents/01_prompt_injection", ["agent", "agent.yaml"],
                  50, True, "Prompt injection -> shell",
                  "An agent with browser + shell tools -- a malicious web page can hijack it into running commands"),
@@ -91,83 +88,110 @@ SCENARIOS: list[ScenarioSpec] = [
                  "Haystack Tool() registration pattern with shell, database, and vault tools"),
 ]
 
-SAFE_SCENARIO = ScenarioSpec("safe_agents/01_scoped_search_agent", ["agent", "agent.yaml"],
-                              0, False, "Safe scoped search agent",
-                              "A well-scoped, read-only agent -- should produce zero findings")
+SAFE_SCENARIO = ScenarioSpec(
+    "safe_agents/01_scoped_search_agent", ["agent", "agent.yaml"],
+    0, False, "Safe scoped search agent",
+    "A well-scoped, read-only agent -- should produce zero findings"
+)
 
 
-def _run_scan(examples_root: Path, spec: ScenarioSpec) -> dict:
+def _run_scan(examples_root, spec):
     target_dir = examples_root / spec.directory
     result = subprocess.run(
         ["agentscan"] + spec.cmd + ["--output", "json"],
-        cwd=target_dir, capture_output=True, text=True,
+        cwd=target_dir, capture_output=True, text=True, encoding="utf-8",
     )
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError:
-        return {"error": (result.stderr or result.stdout or "unknown error")[:200]}
+        err = (result.stderr or result.stdout or "unknown error")[:200]
+        return {"error": err}
 
 
-def run_demo() -> int:
+def run_demo():
     """Narrated, human-readable walkthrough. Returns exit code."""
-    RED, ORANGE, GREEN, DIM, BOLD, CYAN, RESET = (
-        "\033[91m", "\033[33m", "\033[92m", "\033[2m", "\033[1m", "\033[96m", "\033[0m"
-    )
+    RED    = "\033[91m"
+    ORANGE = "\033[33m"
+    GREEN  = "\033[92m"
+    DIM    = "\033[2m"
+    BOLD   = "\033[1m"
+    CYAN   = "\033[96m"
+    RESET  = "\033[0m"
     use_colour = sys.stdout.isatty()
-    def c(code, s): return f"{code}{s}{RESET}" if use_colour else s
+
+    def c(code, s):
+        if use_colour:
+            return code + s + RESET
+        return s
 
     examples_root = _find_examples_root()
     if not examples_root:
         print(c(RED, "  Could not locate bundled examples/ directory."))
-        print(f"  {c(DIM, 'Try running from the repo root, or check your installation.')}")
+        print(c(DIM, "  Try running from the repo root, or check your installation."))
         return 1
 
-    print(f"\n  {c(BOLD+CYAN, 'AgentScan Demo')} -- zero-setup evaluation\n")
-    print(f"  {c(DIM, f'Running {len(SCENARIOS)} intentionally vulnerable agents + 1 safe baseline...')}\n")
+    n = len(SCENARIOS)
+    print("")
+    print(c(BOLD + CYAN, "  AgentScan Demo") + " -- zero-setup evaluation")
+    print("")
+    print(c(DIM, "  Running " + str(n) + " intentionally vulnerable agents + 1 safe baseline..."))
+    print("")
 
     all_ok = True
     for spec in SCENARIOS:
-        print(f"  {c(BOLD, spec.label)}")
-        print(f"  {c(DIM, spec.narrative)}")
+        print(c(BOLD, "  " + spec.label))
+        print(c(DIM, "  " + spec.narrative))
         data = _run_scan(examples_root, spec)
         if data.get("error"):
-            err_msg = SYM_FAIL + " ERROR: " + str(data['error'])[:80]
-            print(f"  {c(RED, err_msg)}\n")
+            err_msg = SYM_FAIL + " ERROR: " + str(data["error"])[:80]
+            print("  " + c(RED, err_msg))
+            print("")
             all_ok = False
             continue
         risk = data.get("risk_score", 0)
         n_paths = len(data.get("attack_paths", []))
         ok = risk >= spec.min_risk and (n_paths >= 1 if spec.expect_path else True)
-        icon = c(GREEN, SYM_OK) if ok else c(RED, SYM_FAIL)
         rc = RED if risk >= 70 else ORANGE if risk >= 40 else GREEN
-        print(f"  {icon} Risk {c(rc, f'{risk}/100')}  -  {n_paths} attack path(s) found")
+        icon = c(GREEN, SYM_OK) if ok else c(RED, SYM_FAIL)
+        risk_str = "Risk " + c(rc, str(risk) + "/100")
+        print("  " + icon + " " + risk_str + "  -  " + str(n_paths) + " attack path(s) found")
         if data.get("attack_paths"):
-            print(f"    {c(DIM, data['attack_paths'][0]['title'])}")
-        print()
-        all_ok = all_ok and ok
+            title = data["attack_paths"][0]["title"]
+            print("    " + c(DIM, title))
+        print("")
+        if not ok:
+            all_ok = False
 
     # Safe baseline
-    print(f"  {c(BOLD, SAFE_SCENARIO.label)}")
-    print(f"  {c(DIM, SAFE_SCENARIO.narrative)}")
+    print(c(BOLD, "  " + SAFE_SCENARIO.label))
+    print(c(DIM, "  " + SAFE_SCENARIO.narrative))
     data = _run_scan(examples_root, SAFE_SCENARIO)
     risk = data.get("risk_score", -1)
     n_findings = data.get("summary", {}).get("total_findings", -1)
     safe_ok = risk == 0 and n_findings == 0
     icon = c(GREEN, SYM_OK) if safe_ok else c(RED, SYM_FAIL)
-    print(f"  {icon} Risk {c(GREEN, '0/100') if safe_ok else c(RED, f'{risk}/100')}  -  {n_findings} finding(s) -- {'no false positives' if safe_ok else 'UNEXPECTED FINDINGS'}")
-    print()
-    all_ok = all_ok and safe_ok
+    note = "no false positives" if safe_ok else "UNEXPECTED FINDINGS"
+    risk_display = c(GREEN, "0/100") if safe_ok else c(RED, str(risk) + "/100")
+    print("  " + icon + " Risk " + risk_display + "  -  " + str(n_findings) + " finding(s) -- " + note)
+    print("")
+    if not safe_ok:
+        all_ok = False
 
     if all_ok:
-        print(f"  {c(GREEN+BOLD, f'{SYM_OK} AgentScan correctly identified all {len(SCENARIOS)} attack patterns with zero false positives.')}")
+        msg = SYM_OK + " AgentScan correctly identified all " + str(len(SCENARIOS)) + " attack patterns with zero false positives."
+        print("  " + c(GREEN + BOLD, msg))
     else:
-        print(f"  {c(RED+BOLD, SYM_FAIL + " Some scenarios did not match expected output -- see above.")}")
-    print(f"\n  {c(DIM, 'Try it on your own code: agentscan doctor . && agentscan source .')}\n")
+        msg = SYM_FAIL + " Some scenarios did not match expected output -- see above."
+        print("  " + c(RED + BOLD, msg))
+
+    print("")
+    print(c(DIM, "  Try it on your own code: agentscan doctor . && agentscan source ."))
+    print("")
 
     return 0 if all_ok else 1
 
 
-def run_benchmark() -> int:
+def run_benchmark():
     """Compact pass/fail table. Returns exit code (0 = all pass)."""
     examples_root = _find_examples_root()
     if not examples_root:
@@ -175,30 +199,46 @@ def run_benchmark() -> int:
         return 1
 
     passed, failed = 0, 0
-    print("\n  AgentScan Benchmark\n")
-    print(f"  {'Scenario':<36} {'Risk':<8} {'Paths':<8} {'Status'}")
-    print(f"  {'-'*36} {'-'*8} {'-'*8} {'-'*10}")
+    print("")
+    print("  AgentScan Benchmark")
+    print("")
+    label_w = 36
+    col_header = "  " + "Scenario".ljust(label_w) + " " + "Risk".ljust(8) + " " + "Paths".ljust(8) + " " + "Status"
+    print(col_header)
+    print("  " + "-" * label_w + " " + "-" * 8 + " " + "-" * 8 + " " + "-" * 10)
 
     for spec in SCENARIOS:
         data = _run_scan(examples_root, spec)
         if data.get("error"):
-            print(f"  {spec.label:<36} {'-':<8} {'-':<8} FAIL ({str(data['error'])[:30]})")
+            row = "  " + spec.label[:label_w].ljust(label_w) + " " + "-".ljust(8) + " " + "-".ljust(8) + " FAIL"
+            print(row)
             failed += 1
             continue
         risk = data.get("risk_score", 0)
         n_paths = len(data.get("attack_paths", []))
         ok = risk >= spec.min_risk and (n_paths >= 1 if spec.expect_path else True)
-        print(f"  {spec.label:<36} {risk:<8} {n_paths:<8} {'PASS' if ok else 'FAIL'}")
-        passed += 1 if ok else 0
-        failed += 0 if ok else 1
+        status = "PASS" if ok else "FAIL"
+        row = "  " + spec.label[:label_w].ljust(label_w) + " " + str(risk).ljust(8) + " " + str(n_paths).ljust(8) + " " + status
+        print(row)
+        if ok:
+            passed += 1
+        else:
+            failed += 1
 
     data = _run_scan(examples_root, SAFE_SCENARIO)
     risk = data.get("risk_score", -1)
     n_findings = data.get("summary", {}).get("total_findings", -1)
     safe_ok = risk == 0 and n_findings == 0
-    print(f"  {SAFE_SCENARIO.label:<36} {risk:<8} {'-':<8} {'PASS' if safe_ok else 'FAIL'}")
-    passed += 1 if safe_ok else 0
-    failed += 0 if safe_ok else 1
+    status = "PASS" if safe_ok else "FAIL"
+    row = "  " + SAFE_SCENARIO.label[:label_w].ljust(label_w) + " " + str(risk).ljust(8) + " " + "-".ljust(8) + " " + status
+    print(row)
+    if safe_ok:
+        passed += 1
+    else:
+        failed += 1
 
-    print(f"\n  {passed}/{passed+failed} scenarios passed\n")
+    total = passed + failed
+    print("")
+    print("  " + str(passed) + "/" + str(total) + " scenarios passed")
+    print("")
     return 0 if failed == 0 else 1
