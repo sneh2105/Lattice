@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 If you find a security issue in AgentScan itself, please **do not open a public
-GitHub issue**. Instead, email **sneh2105@github.com** (or open a
+GitHub issue**. Instead, email **sneh2105@gmail.com** (or open a
 [GitHub private security advisory](https://github.com/sneh2105/agentscan/security/advisories/new)).
 
 Include:

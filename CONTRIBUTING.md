@@ -39,3 +39,8 @@ pytest tests/unit/ --cov=agentscan --cov-report=term-missing
 - One feature or fix per PR
 - Tests required for new scanners or graph features
 - Update `CHANGELOG.md` with a one-line summary
+
+## Questions or ideas
+
+Open a GitHub issue, or email [sneh2105@gmail.com](mailto:sneh2105@gmail.com).
+Built by [Sneh Singh](https://www.linkedin.com/in/sneh-singh-cs/).

@@ -8,7 +8,7 @@ version = "0.2.0"
 description = "Security scanner for AI agents, MCP servers, and AI supply chain artifacts — with attack graph engine and compliance reporting"
 readme = "README.md"
 license = { text = "Apache-2.0" }
-authors = [{ name = "AgentScan Contributors" }]
+authors = [{ name = "Sneh Singh", email = "sneh2105@gmail.com" }]
 keywords = [
   "security", "ai", "llm", "agents", "mcp", "supply-chain",
   "appsec", "attack-graph", "compliance", "rbi", "dpdp", "iso42001"
