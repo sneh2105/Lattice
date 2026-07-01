@@ -2,7 +2,7 @@
 """
 Runtime Attack Graph Analyser
 ==============================
-Converts a sequence of runtime events into a Runtime Attack Graph —
+Converts a sequence of runtime events into a Runtime Attack Graph --
 showing what the agent actually did, not just what it could do.
 
 This answers: "What did the AI actually do?"
@@ -26,7 +26,7 @@ from agentscan.runtime.events import (
 from agentscan.models import Finding, Evidence, Severity, ConfidenceLevel, AttackPath, ScanResult
 
 
-# ── Detection rules ───────────────────────────────────────────────────────────
+# -- Detection rules -----------------------------------------------------------
 
 # Prompt injection signals in LLM input
 INJECTION_PATTERNS = [
@@ -56,12 +56,12 @@ SUSPICIOUS_DOMAINS = [
 
 # Dangerous shell command patterns
 DANGEROUS_COMMANDS = [
-    (r"curl\s+.*\s+-[oO]\s+", "curl with output redirect — potential dropper"),
-    (r"wget\s+.*\s+-[oO]\s+", "wget with output — potential dropper"),
-    (r"base64\s+--decode|base64\s+-d\b", "base64 decode — obfuscation pattern"),
-    (r"\|\s*(bash|sh|python|perl|ruby)\b", "Pipe to interpreter — RCE pattern"),
-    (r"chmod\s+[+u]x\b", "chmod +x — making file executable"),
-    (r"cron(tab)?\s+-[el]", "Crontab modification — persistence"),
+    (r"curl\s+.*\s+-[oO]\s+", "curl with output redirect -- potential dropper"),
+    (r"wget\s+.*\s+-[oO]\s+", "wget with output -- potential dropper"),
+    (r"base64\s+--decode|base64\s+-d\b", "base64 decode -- obfuscation pattern"),
+    (r"\|\s*(bash|sh|python|perl|ruby)\b", "Pipe to interpreter -- RCE pattern"),
+    (r"chmod\s+[+u]x\b", "chmod +x -- making file executable"),
+    (r"cron(tab)?\s+-[el]", "Crontab modification -- persistence"),
     (r"(nc|ncat|netcat)\s+.*-[el]\s+", "Netcat listener/reverse shell"),
     (r"/etc/(passwd|shadow|sudoers)", "Reading sensitive system files"),
     (r"(aws|gcloud|az)\s+.*credentials", "Cloud credential CLI access"),
@@ -71,7 +71,7 @@ DANGEROUS_COMMANDS = [
 
 @dataclass
 class RuntimeFinding:
-    """A finding from runtime analysis — tied to specific events."""
+    """A finding from runtime analysis -- tied to specific events."""
     id: str
     title: str
     severity: Severity
@@ -184,7 +184,7 @@ class RuntimeAnalyser:
             summary=summary,
         )
 
-    # ── Detection passes ──────────────────────────────────────────────────────
+    # -- Detection passes ------------------------------------------------------
 
     def _detect_prompt_injection(self, session: AgentSession) -> list[RuntimeFinding]:
         findings = []
@@ -207,7 +207,7 @@ class RuntimeAnalyser:
                             f"via {source}. This may cause the agent to deviate from its intended behaviour, "
                             "override safety policies, or execute unintended tool calls."
                         ),
-                        impact="Agent may follow attacker instructions instead of system prompt — tool abuse, data exfil, policy bypass.",
+                        impact="Agent may follow attacker instructions instead of system prompt -- tool abuse, data exfil, policy bypass.",
                         remediation="Add input/output guardrails that detect and block injection patterns. "
                                     "Treat all external content (tool results, retrieved documents) as untrusted.",
                         events=[event],
@@ -232,9 +232,9 @@ class RuntimeAnalyser:
                             "Credentials in the agent's data stream can be logged, injected into "
                             "LLM context, or exfiltrated via tool calls."
                         ),
-                        impact="Credential exposure — may appear in LLM logs, audit trails, or be exfiltrated.",
+                        impact="Credential exposure -- may appear in LLM logs, audit trails, or be exfiltrated.",
                         remediation="Never pass raw credentials through the agent data stream. "
-                                    "Use secret injection at runtime — not via tool results or prompts.",
+                                    "Use secret injection at runtime -- not via tool results or prompts.",
                         events=[event],
                         mitre_atlas=["AML.T0051"],
                         tags=["runtime", "credential-exposure"],
@@ -251,7 +251,7 @@ class RuntimeAnalyser:
             for pattern, label in DANGEROUS_COMMANDS:
                 if re.search(pattern, cmd, re.IGNORECASE):
                     findings.append(RuntimeFinding(
-                        id=f"RT-CMD-{label[:15].upper().replace(' ','-').replace('—','')}",
+                        id=f"RT-CMD-{label[:15].upper().replace(' ','-').replace('--','')}",
                         title=f"Dangerous command pattern observed at runtime: '{label}'",
                         severity=Severity.CRITICAL,
                         confidence=ConfidenceLevel.HIGH,
@@ -283,7 +283,7 @@ class RuntimeAnalyser:
                         severity=Severity.CRITICAL,
                         confidence=ConfidenceLevel.HIGH,
                         explanation=(
-                            f"The agent made an HTTP call to '{url}', which contains '{domain}' — "
+                            f"The agent made an HTTP call to '{url}', which contains '{domain}' -- "
                             "a domain associated with request inspection/interception tools. "
                             "This is a strong signal of active data exfiltration."
                         ),
@@ -297,7 +297,7 @@ class RuntimeAnalyser:
         return findings
 
     def _detect_credential_exfil_chain(self, session: AgentSession) -> list[RuntimeFinding]:
-        """Detect: secret access → network call (within same session)."""
+        """Detect: secret access -> network call (within same session)."""
         findings = []
         secret_events = [e for e in session.events if e.type == EventType.SECRET_ACCESS]
         network_events = [e for e in session.events if e.type == EventType.NETWORK_CALL]
@@ -308,7 +308,7 @@ class RuntimeAnalyser:
                 if later_net:
                     findings.append(RuntimeFinding(
                         id="RT-CHAIN-CRED-EXFIL",
-                        title="RUNTIME: Credential access followed by network call — exfiltration chain",
+                        title="RUNTIME: Credential access followed by network call -- exfiltration chain",
                         severity=Severity.CRITICAL,
                         confidence=ConfidenceLevel.HIGH,
                         explanation=(
@@ -316,7 +316,7 @@ class RuntimeAnalyser:
                             f"subsequently made a network call to '{later_net[0].data.get('url','?')}'. "
                             "This is the runtime manifestation of a credential exfiltration attack."
                         ),
-                        impact="Live credential exfiltration — attacker may have received the secret.",
+                        impact="Live credential exfiltration -- attacker may have received the secret.",
                         remediation="Immediately rotate the exposed credential. Review network logs. "
                                     "Add a control requiring human approval before any network call "
                                     "following a secret retrieval.",
@@ -340,7 +340,7 @@ class RuntimeAnalyser:
                     if later:
                         findings.append(RuntimeFinding(
                             id=f"RT-CHAIN-TOOLSECRET-NET-{label[:10].upper().replace(' ','-')}",
-                            title=f"Secret in tool result → network call: '{label}' pattern",
+                            title=f"Secret in tool result -> network call: '{label}' pattern",
                             severity=Severity.CRITICAL,
                             confidence=ConfidenceLevel.MEDIUM,
                             explanation=(
@@ -372,13 +372,13 @@ class RuntimeAnalyser:
                     if later_tools:
                         findings.append(RuntimeFinding(
                             id=f"RT-INDIRECT-INJECT-{label[:12].upper().replace(' ','-')}",
-                            title=f"Indirect prompt injection via tool result → subsequent tool call",
+                            title=f"Indirect prompt injection via tool result -> subsequent tool call",
                             severity=Severity.CRITICAL,
                             confidence=ConfidenceLevel.HIGH,
                             explanation=(
                                 f"A tool result contained '{label}' (injection pattern). "
                                 f"This was followed by a tool call to '{later_tools[0].data.get('tool','?')}'. "
-                                "This is the classic indirect prompt injection attack — attacker-controlled "
+                                "This is the classic indirect prompt injection attack -- attacker-controlled "
                                 "data (web page, DB row, email) overrides the agent's instructions."
                             ),
                             impact="Agent executed attacker-injected instructions via tool result content.",
@@ -390,14 +390,14 @@ class RuntimeAnalyser:
                         ))
         return findings
 
-    # ── Runtime attack path construction ─────────────────────────────────────
+    # -- Runtime attack path construction -------------------------------------
 
     def _build_runtime_paths(
         self, session: AgentSession, findings: list[RuntimeFinding]
     ) -> list[RuntimeAttackPath]:
         paths = []
 
-        # Path: injection → tool call
+        # Path: injection -> tool call
         inject_findings = [f for f in findings if "injection" in " ".join(f.tags)]
         tool_findings = [f for f in findings if "process" in " ".join(f.tags) or "command" in " ".join(f.tags)]
 
@@ -406,7 +406,7 @@ class RuntimeAnalyser:
             terminal = tool_findings[0].events[0]
             chain = self._events_between(session, entry, terminal)
             paths.append(RuntimeAttackPath(
-                title="Runtime: Prompt injection → dangerous command execution",
+                title="Runtime: Prompt injection -> dangerous command execution",
                 severity=Severity.CRITICAL,
                 events=chain,
                 entry_event=entry,
@@ -420,7 +420,7 @@ class RuntimeAnalyser:
                 composite_score=95.0,
             ))
 
-        # Path: secret access → network exfiltration
+        # Path: secret access -> network exfiltration
         exfil_findings = [f for f in findings if "exfiltration" in " ".join(f.tags) or "CRED-EXFIL" in f.id]
         if exfil_findings:
             ef = exfil_findings[0]
@@ -452,7 +452,7 @@ class RuntimeAnalyser:
         except ValueError:
             return [start, end]
 
-    # ── Timeline ──────────────────────────────────────────────────────────────
+    # -- Timeline --------------------------------------------------------------
 
     def _build_timeline(self, session: AgentSession) -> list[dict]:
         if not session.events:
@@ -485,7 +485,7 @@ class RuntimeAnalyser:
         # Rapid-fire tool calls (< 100ms apart) = possible loop
         for i in range(1, len(tool_calls)):
             if tool_calls[i].timestamp_ms - tool_calls[i-1].timestamp_ms < 100:
-                anomalies.append("Rapid-fire tool calls detected (< 100ms apart) — possible agent loop")
+                anomalies.append("Rapid-fire tool calls detected (< 100ms apart) -- possible agent loop")
                 break
 
         return anomalies
@@ -506,7 +506,7 @@ class RuntimeAnalyser:
         if nets:
             lines.append(f"Network calls: {', '.join(list(nets)[:3])}")
         if paths:
-            lines.append(f"⚠ CRITICAL: {paths[0].title}")
+            lines.append(f"[!] CRITICAL: {paths[0].title}")
         return "\n".join(lines)
 
 

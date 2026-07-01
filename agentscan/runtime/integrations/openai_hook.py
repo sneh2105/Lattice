@@ -71,8 +71,8 @@ class AgentScanOpenAIHook:
     def log_handoff(self, from_agent: str, to_agent: str, context: str = "") -> None:
         """Log agent handoff events."""
         self._monitor.log_llm_request(
-            model=f"handoff/{from_agent}→{to_agent}",
-            messages=[{"role": "system", "content": f"Handoff: {from_agent} → {to_agent}. Context: {context}"}],
+            model=f"handoff/{from_agent}->{to_agent}",
+            messages=[{"role": "system", "content": f"Handoff: {from_agent} -> {to_agent}. Context: {context}"}],
         )
 
     @contextmanager

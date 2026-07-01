@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Terminal output renderer — produces beautiful, informative CLI output.
+Terminal output renderer -- produces beautiful, informative CLI output.
 Designed to be screenshot-worthy and shareable.
 """
 
@@ -37,9 +37,9 @@ SEVERITY_COLOUR = {
 SEVERITY_ICON = {
     Severity.CRITICAL: SYM_CRITICAL,
     Severity.HIGH: "!",
-    Severity.MEDIUM: "▲",
+    Severity.MEDIUM: "^",
     Severity.LOW: SYM_BULLET,
-    Severity.INFO: "ℹ",
+    Severity.INFO: "[i]",
 }
 
 
@@ -60,7 +60,7 @@ def _severity_badge(sev: Severity) -> str:
     return _col(colour, f"[{icon} {label}]")
 
 
-def _hr(width: int = 70, char: str = "─") -> str:
+def _hr(width: int = 70, char: str = "-") -> str:
     return _col(DIM, char * width)
 
 
@@ -68,21 +68,21 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
     lines: list[str] = []
     w = 70
 
-    # ── Header ──────────────────────────────────────────────────────────
+    # -- Header ----------------------------------------------------------
     lines.append("")
-    lines.append(_col(BOLD + CYAN, "  AgentScan " + "─" * 50))
+    lines.append(_col(BOLD + CYAN, "  AgentScan " + "-" * 50))
     lines.append(_col(DIM, f"  target  : {result.target}"))
     lines.append(_col(DIM, f"  scanner : {result.scanner_type}"))
     lines.append(_col(DIM, f"  duration: {result.scan_duration_ms}ms"))
     lines.append("")
 
-    # ── Error ────────────────────────────────────────────────────────────
+    # -- Error ------------------------------------------------------------
     if result.error:
         lines.append(_col(RED, f"  {SYM_FAIL} Error: {result.error}"))
         lines.append("")
         return "\n".join(lines)
 
-    # ── Risk Score ───────────────────────────────────────────────────────
+    # -- Risk Score -------------------------------------------------------
     score = result.risk_score()
     if score >= 80:
         score_col = RED
@@ -98,7 +98,7 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
     lines.append(_col(BOLD, f"  Risk score  ") + _col(score_col, f"{score:3d}/100  ") + _col(score_col, bar))
     lines.append("")
 
-    # ── Finding counts ───────────────────────────────────────────────────
+    # -- Finding counts ---------------------------------------------------
     reportable = result.reportable_findings
     counts = {sev: 0 for sev in Severity}
     for f in reportable:
@@ -114,7 +114,7 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
         lines.append(_col(RED + BOLD, f"  Attack paths: {len(result.attack_paths)} critical chain(s) found"))
     lines.append("")
 
-    # ── Attack paths (most important, shown first) ───────────────────────
+    # -- Attack paths (most important, shown first) -----------------------
     if result.attack_paths:
         lines.append(_col(BOLD + RED, f"  {BOX_TL}{BOX_LINE*2} ATTACK PATHS {BOX_LINE*42}{BOX_TR}"))
         for i, path in enumerate(result.attack_paths, 1):
@@ -124,7 +124,7 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
             # Show chain
             step_names = [s.title.split("'")[1] if "'" in s.title else s.title[:40] for s in path.steps[:4]]
             if step_names:
-                chain = " → ".join(step_names)
+                chain = " -> ".join(step_names)
                 lines.append(_col(ORANGE, f"  {BOX_SIDE}     Chain : {chain}"))
             if path.mitre_atlas:
                 lines.append(_col(DIM, f"  {BOX_SIDE}     ATLAS : {', '.join(path.mitre_atlas)}"))
@@ -132,9 +132,9 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
         lines.append(_col(BOLD + RED, f"  {BOX_BL}{BOX_LINE*59}{BOX_BR}"))
         lines.append("")
 
-    # ── Individual findings ──────────────────────────────────────────────
+    # -- Individual findings ----------------------------------------------
     if reportable:
-        lines.append(_col(BOLD, "  ── Findings " + "─" * 55))
+        lines.append(_col(BOLD, "  -- Findings " + "-" * 55))
         lines.append("")
 
         # Sort: critical first
@@ -186,14 +186,14 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
             lines.append(_col(DIM, f"  " + SYM_BULLET * 66))
             lines.append("")
 
-    # ── Metadata ────────────────────────────────────────────────────────
+    # -- Metadata --------------------------------------------------------
     if verbose and result.metadata:
-        lines.append(_col(DIM, "  ── Metadata " + "─" * 55))
+        lines.append(_col(DIM, "  -- Metadata " + "-" * 55))
         for k, v in result.metadata.items():
             lines.append(_col(DIM, f"  {k}: {v}"))
         lines.append("")
 
-    # ── Footer ───────────────────────────────────────────────────────────
+    # -- Footer -----------------------------------------------------------
     lines.append(_col(DIM, "  AgentScan v0.1.0 - github.com/sneh2105/agentscan"))
     lines.append("")
     return "\n".join(lines)

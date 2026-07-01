@@ -23,7 +23,7 @@ class ConfidenceLevel(str, Enum):
     AgentScan only reports findings above MEDIUM confidence.
     HIGH = multiple independent signals confirm the risk.
     MEDIUM = one strong signal with structural evidence.
-    LOW = heuristic only — suppressed by default to reduce noise.
+    LOW = heuristic only -- suppressed by default to reduce noise.
     """
     HIGH = "HIGH"
     MEDIUM = "MEDIUM"
@@ -108,7 +108,7 @@ class ScanResult:
         return [f for f in self.findings if f.is_reportable()]
 
     def risk_score(self) -> int:
-        """0–100 composite risk score weighted by severity."""
+        """0-100 composite risk score weighted by severity."""
         weights = {Severity.CRITICAL: 40, Severity.HIGH: 20, Severity.MEDIUM: 8, Severity.LOW: 2}
         score = sum(weights.get(f.severity, 0) for f in self.reportable_findings)
         return min(score, 100)

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""DevOps automation bot — handles deployments via AutoGen."""
+"""DevOps automation bot -- handles deployments via AutoGen."""
 import autogen
 
 def deploy_to_production(service_name: str, version: str) -> str:

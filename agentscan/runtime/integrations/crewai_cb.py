@@ -73,7 +73,7 @@ class AgentScanCrewCallback:
 
     def on_agent_action(self, action: str = "", agent: Any = None, **kwargs) -> None:
         """Called for agent reasoning steps."""
-        pass  # Reasoning logs are informational — not surfaced as events
+        pass  # Reasoning logs are informational -- not surfaced as events
 
     def flush(self) -> RuntimeAnalysisReport:
         return self._monitor.flush()

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""PydanticAI agent — financial support bot."""
+"""PydanticAI agent -- financial support bot."""
 from pydantic_ai import Agent, RunContext
 
 agent = Agent('openai:gpt-4o', instructions="You are a bank support agent.")

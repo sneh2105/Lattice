@@ -47,7 +47,7 @@ def cmd_graph_agent(args):
     print(render_terminal(graph, paths))
 
     print(_col(BOLD, "  Blast Radius Analysis"))
-    print(_col(DIM, "  " + "─" * 60))
+    print(_col(DIM, "  " + "-" * 60))
     for entry_id in ["user_prompt", "tool_response", "rag_context"]:
         br = graph.blast_radius(entry_id)
         if br["crown_jewels_reachable"]:
@@ -58,7 +58,7 @@ def cmd_graph_agent(args):
     print()
 
     if args.export_html or getattr(args, "open_browser", False):
-        html = render_html(graph, paths, title=f"AgentScan — {args.config}")
+        html = render_html(graph, paths, title=f"AgentScan -- {args.config}")
         out_path = args.export_html or "agentscan_attack_graph.html"
         Path(out_path).write_text(html, encoding="utf-8")
         print(f"  Interactive graph -> {out_path}")
@@ -77,8 +77,8 @@ def cmd_graph_mcp(args):
     tc = _trust_colour(profile.trust_score)
     rc = RED if profile.risk_score >= 70 else ORANGE if profile.risk_score >= 40 else GREEN
 
-    print(f"\n  {_col(BOLD+CYAN, 'MCP Security Platform')} — {profile.name}\n")
-    print(f"  {'─'*60}")
+    print(f"\n  {_col(BOLD+CYAN, 'MCP Security Platform')} -- {profile.name}\n")
+    print(f"  {'-'*60}")
     print(f"  Target    : {profile.url_or_path}")
     print(f"  Publisher : {profile.publisher}")
     print(f"  Live scan : {'Yes' if profile.is_live else 'No (manifest)'}")
@@ -110,7 +110,7 @@ def cmd_graph_mcp(args):
             print(f"    {_col(DIM, tool.name)}  {_col(DIM, '[safe]')}")
             continue
         sc = RED if tool.severity.value in ("CRITICAL","HIGH") else ORANGE if tool.severity.value=="MEDIUM" else DIM
-        print(f"    {_col(sc,'●')} {_col(BOLD, tool.name)}  [{_col(sc, tool.severity.value)}]  "
+        print(f"    {_col(sc,'*')} {_col(BOLD, tool.name)}  [{_col(sc, tool.severity.value)}]  "
               f"{_col(DIM, ', '.join(tool.capabilities))}")
     print()
 
@@ -118,7 +118,7 @@ def cmd_graph_mcp(args):
     print(render_terminal(profile.graph, paths))
 
     if args.export_html:
-        html = render_html(profile.graph, paths, title=f"AgentScan MCP — {profile.name}")
+        html = render_html(profile.graph, paths, title=f"AgentScan MCP -- {profile.name}")
         Path(args.export_html).write_text(html, encoding="utf-8")
         print(f"  Interactive graph -> {args.export_html}")
         print()
@@ -162,16 +162,16 @@ def cmd_graph_chain(args):
 def _render_chain_report(report: MCPTrustChainReport, args):
     """Render the multi-server trust chain report to terminal."""
 
-    # ── Server overview table ────────────────────────────────────────────────
-    print(_col(BOLD, "  ── Server Overview " + "─"*48))
+    # -- Server overview table ------------------------------------------------
+    print(_col(BOLD, "  -- Server Overview " + "-"*48))
     print()
-    header = f"  {'Server':<28} {'Declared':>9} {'Effective':>10} {'Δ':>5}  {'Level':<10}  Capabilities"
+    header = f"  {'Server':<28} {'Declared':>9} {'Effective':>10} {'?':>5}  {'Level':<10}  Capabilities"
     print(_col(DIM, header))
-    print(_col(DIM, "  " + "─"*85))
+    print(_col(DIM, "  " + "-"*85))
 
     for name, result in report.trust_propagation.items():
         profile = report.server_profiles.get(name)
-        caps = ", ".join(profile.capabilities[:4]) + ("…" if len(profile.capabilities) > 4 else "") if profile else ""
+        caps = ", ".join(profile.capabilities[:4]) + ("..." if len(profile.capabilities) > 4 else "") if profile else ""
         dc = _trust_colour(result.declared_trust)
         ec = _trust_colour(result.effective_trust)
         delta = result.trust_reduction
@@ -187,10 +187,10 @@ def _render_chain_report(report: MCPTrustChainReport, args):
     print(f"  Effective trust floor: {_col(_trust_colour(report.effective_trust_floor), str(report.effective_trust_floor))}/100")
     print()
 
-    # ── Trust propagation detail ─────────────────────────────────────────────
+    # -- Trust propagation detail ---------------------------------------------
     poisoned = [(n, r) for n, r in report.trust_propagation.items() if r.trust_reduction > 0]
     if poisoned:
-        print(_col(BOLD + ORANGE, "  ── Trust Pollution " + "─"*48))
+        print(_col(BOLD + ORANGE, "  -- Trust Pollution " + "-"*48))
         print()
         for name, result in poisoned:
             print(f"  {_col(ORANGE, '[!]')} '{_col(BOLD, name)}' trust reduced {result.declared_trust} -> {_col(RED, str(result.effective_trust))}/100")
@@ -198,9 +198,9 @@ def _render_chain_report(report: MCPTrustChainReport, args):
             print(f"    Chain       : {' -> '.join(result.propagation_path)}")
             print()
 
-    # ── Call graph ───────────────────────────────────────────────────────────
+    # -- Call graph -----------------------------------------------------------
     if report.edges:
-        print(_col(BOLD, "  ── Server Call Graph " + "─"*46))
+        print(_col(BOLD, "  -- Server Call Graph " + "-"*46))
         print()
         id_to_name = {}
         for name, profile in report.server_profiles.items():
@@ -212,16 +212,16 @@ def _render_chain_report(report: MCPTrustChainReport, args):
             dst_name = id_to_name.get(edge.dst_id, edge.dst_id)
             rel_col = GREEN if edge.declared else YELLOW
             rel_label = "declared" if edge.declared else "inferred"
-            print(f"  {_col(CYAN, src_name)} ──{edge.relationship.replace('_','─')}──▶ "
+            print(f"  {_col(CYAN, src_name)} --{edge.relationship.replace('_','-')}--? "
                   f"{_col(CYAN, dst_name)}  {_col(rel_col, f'[{rel_label}]')}")
         print()
 
-    # ── Cross-server attack paths ─────────────────────────────────────────────
+    # -- Cross-server attack paths ---------------------------------------------
     if report.cross_server_paths:
         crit_paths = [p for p in report.cross_server_paths if p.severity == Severity.CRITICAL]
         other_paths = [p for p in report.cross_server_paths if p.severity != Severity.CRITICAL]
 
-        print(_col(BOLD + RED, f"  ── Cross-Server Attack Paths ({len(report.cross_server_paths)} found) " + "─"*30))
+        print(_col(BOLD + RED, f"  -- Cross-Server Attack Paths ({len(report.cross_server_paths)} found) " + "-"*30))
         print()
 
         for i, path in enumerate(report.cross_server_paths[:6], 1):
@@ -244,9 +244,9 @@ def _render_chain_report(report: MCPTrustChainReport, args):
             print(f"  {_col(DIM, chr(8212)*60)}")
             print()
 
-    # ── Findings ─────────────────────────────────────────────────────────────
+    # -- Findings -------------------------------------------------------------
     if report.findings:
-        print(_col(BOLD, f"  ── Findings ({len(report.findings)}) " + "─"*52))
+        print(_col(BOLD, f"  -- Findings ({len(report.findings)}) " + "-"*52))
         print()
         for f in report.findings:
             sc = RED if f.severity == Severity.CRITICAL else ORANGE if f.severity == Severity.HIGH else YELLOW
@@ -255,7 +255,7 @@ def _render_chain_report(report: MCPTrustChainReport, args):
             print(f"  {_col(GREEN, 'Fix:')} {f.remediation[:150]}")
             print()
 
-    # ── JSON export ──────────────────────────────────────────────────────────
+    # -- JSON export ----------------------------------------------------------
     if getattr(args, "output_file", None):
         import json as _json
         data = {
@@ -292,20 +292,20 @@ def _render_chain_report(report: MCPTrustChainReport, args):
         Path(args.output_file).write_text(_json.dumps(data, indent=2), encoding="utf-8")
         print(f"  {_col(GREEN, '[OK]')} JSON report -> {args.output_file}")
 
-    # ── HTML export ──────────────────────────────────────────────────────────
+    # -- HTML export ----------------------------------------------------------
     if getattr(args, "export_html", None):
         html = render_html(
             report.unified_graph,
             graph_paths_to_attack_paths(
                 report.unified_graph.find_attack_paths()
             ) if False else [],
-            title="AgentScan — Multi-Server Trust Chain"
+            title="AgentScan -- Multi-Server Trust Chain"
         )
         # Pass actual GraphPath objects
         from agentscan.graph.engine import graph_paths_to_attack_paths as gp2ap
         from agentscan.graph.engine import AttackGraph
         actual_paths = report.unified_graph.find_attack_paths()
-        html = render_html(report.unified_graph, actual_paths, "AgentScan — Trust Chain")
+        html = render_html(report.unified_graph, actual_paths, "AgentScan -- Trust Chain")
         Path(args.export_html).write_text(html, encoding="utf-8")
         print(f"  {_col(GREEN, '[OK]')} Interactive graph -> {args.export_html}")
 
@@ -357,7 +357,7 @@ def add_graph_parser(subparsers):
 
 
 def cmd_graph_trustflow(args):
-    """agentscan graph trustflow <config> — trust boundary crossing analysis."""
+    """agentscan graph trustflow <config> -- trust boundary crossing analysis."""
     from agentscan.scanners.agent_scanner import scan_agent_config
     from agentscan.graph.engine import build_graph_from_scan
     from agentscan.graph.trust_flow import analyse_trust_flow
@@ -369,7 +369,7 @@ def cmd_graph_trustflow(args):
     graph = build_graph_from_scan(result)
     report = analyse_trust_flow(graph)
 
-    print(f"\n  {_col(BOLD+CYAN, 'Trust Flow Analysis')} — {args.config}\n")
+    print(f"\n  {_col(BOLD+CYAN, 'Trust Flow Analysis')} -- {args.config}\n")
     print(f"  Unsanitised trust boundary crossings: {_col(RED, str(report.total_unsanitised_crossings))}\n")
 
     if report.crossings:
@@ -397,7 +397,7 @@ def cmd_graph_trustflow(args):
 
 
 def cmd_graph_escalation(args):
-    """agentscan graph escalation <config> — capability escalation analysis."""
+    """agentscan graph escalation <config> -- capability escalation analysis."""
     from agentscan.scanners.agent_scanner import scan_agent_config
     from agentscan.graph.escalation import analyse_capability_escalation
 
@@ -408,7 +408,7 @@ def cmd_graph_escalation(args):
     caps = result.metadata.get("capabilities_detected", [])
     report = analyse_capability_escalation(caps)
 
-    print(f"\n  {_col(BOLD+CYAN, 'Capability Escalation Analysis')} — {args.config}\n")
+    print(f"\n  {_col(BOLD+CYAN, 'Capability Escalation Analysis')} -- {args.config}\n")
     print(f"  Declared capabilities : {', '.join(sorted(report.declared_capabilities)) or '(none)'}")
     print(f"  Declared risk         : {report.declared_risk}/100")
     print(f"  Effective risk        : {_col(RED, str(report.effective_risk))}/100")
@@ -459,7 +459,7 @@ def cmd_graph_query(args):
 
     result_q = engine.query(args.sql)
 
-    print(f"\n  {_col(BOLD+CYAN, 'AI-SQL')} {_col(DIM, '›')} {args.sql}\n")
+    print(f"\n  {_col(BOLD+CYAN, 'AI-SQL')} {_col(DIM, '?')} {args.sql}\n")
     if not result_q.success:
         print(f"  {_col(RED, 'Error:')} {result_q.error}\n")
         return

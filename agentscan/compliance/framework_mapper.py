@@ -49,7 +49,7 @@ class ComplianceReport:
     priority_gaps: list[str]          # top 3 things to fix for compliance
 
 
-# ── Control library ─────────────────────────────────────────────────────────
+# -- Control library ---------------------------------------------------------
 # Keyed by finding tag or capability name.
 # Each entry is a list of control references across frameworks.
 
@@ -225,7 +225,7 @@ CONTROL_LIBRARY: dict[str, list[dict]] = {
          "obligation": "High-risk AI models must have output safety controls and guardrails as a precondition for deployment.",
          "severity": "mandatory"},
         {"framework": "EU AI Act", "control_id": "AIA-Art16",
-         "control_name": "Technical documentation — safety measures",
+         "control_name": "Technical documentation -- safety measures",
          "obligation": "High-risk AI systems must document safety measures and controls implemented.",
          "severity": "mandatory"},
         {"framework": "ISO 42001", "control_id": "ISO42001-8.4",
@@ -240,7 +240,7 @@ DPDP_STATIC_GAPS = [
     {
         "gap": "Consent mechanism not assessed",
         "control": "DPDP-R3",
-        "detail": "DPDP Rules 2025 Rule 3 requires a standalone consent notice before any personal data collection. AgentScan cannot assess whether your agent's consent flow is compliant — this requires a manual privacy review.",
+        "detail": "DPDP Rules 2025 Rule 3 requires a standalone consent notice before any personal data collection. AgentScan cannot assess whether your agent's consent flow is compliant -- this requires a manual privacy review.",
         "deadline": "May 13, 2027",
     },
     {
@@ -315,9 +315,9 @@ def map_findings_to_controls(result: ScanResult) -> ComplianceReport:
     if result.attack_paths:
         priority_gaps.append(f"Resolve {len(result.attack_paths)} critical attack path(s) before any compliance claim is valid")
     if any("secret_access" in f.tags for f in result.reportable_findings):
-        priority_gaps.append("Restrict agent access to secrets — this is a mandatory RBI and DPDP control")
+        priority_gaps.append("Restrict agent access to secrets -- this is a mandatory RBI and DPDP control")
     if any("mcp-auth" in f.tags for f in result.reportable_findings):
-        priority_gaps.append("Add authentication to all MCP servers — required under RBI AI-ACT&RS and ISO 42001")
+        priority_gaps.append("Add authentication to all MCP servers -- required under RBI AI-ACT&RS and ISO 42001")
     if not priority_gaps:
         priority_gaps.append("Run the DPIA module to generate the required Data Protection Impact Assessment")
         priority_gaps.append("Generate audit report for board sign-off (RBI MRM 2026 requirement)")

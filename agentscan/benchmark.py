@@ -6,8 +6,8 @@ Zero-setup evaluation: run AgentScan against bundled, intentionally
 vulnerable agents (plus a safe baseline) without needing any of your own
 code. Answers "does this actually work?" in one command.
 
-`agentscan demo`      — human-readable, narrated walkthrough (first impression)
-`agentscan benchmark` — pass/fail table against documented thresholds (CI-style)
+`agentscan demo`      -- human-readable, narrated walkthrough (first impression)
+`agentscan benchmark` -- pass/fail table against documented thresholds (CI-style)
 
 Both operate on the same fixtures in examples/vulnerable_agents/ and
 examples/safe_agents/, located relative to the installed package so this
@@ -15,7 +15,7 @@ works regardless of the user's current directory.
 """
 
 from __future__ import annotations
-import agentscan._compat  # force UTF-8 before any print — Windows fix
+import agentscan._compat  # force UTF-8 before any print -- Windows fix
 import json
 import subprocess
 import sys
@@ -58,10 +58,10 @@ class ScenarioSpec:
 SCENARIOS: list[ScenarioSpec] = [
     ScenarioSpec("vulnerable_agents/01_prompt_injection", ["agent", "agent.yaml"],
                  50, True, "Prompt injection -> shell",
-                 "An agent with browser + shell tools — a malicious web page can hijack it into running commands"),
+                 "An agent with browser + shell tools -- a malicious web page can hijack it into running commands"),
     ScenarioSpec("vulnerable_agents/02_secret_exfiltration", ["agent", "agent.yaml"],
                  70, True, "Secret exfiltration",
-                 "An agent that can read AWS secrets AND make network calls — a complete exfil path"),
+                 "An agent that can read AWS secrets AND make network calls -- a complete exfil path"),
     ScenarioSpec("vulnerable_agents/03_shell_execution", ["source", "devops_agent.py"],
                  40, False, "Shell exec (real source code)",
                  "Real LangChain Python code (no YAML) with a subprocess.run() call"),
@@ -76,10 +76,10 @@ SCENARIOS: list[ScenarioSpec] = [
                  "A Nova Act browser automation workflow with AWS credential and shell diagnostic tools"),
     ScenarioSpec("vulnerable_agents/07_custom_inhouse_agent", ["source", "internal_agent.py"],
                  90, True, "Custom in-house agent (no framework)",
-                 "A hand-built agent using raw Anthropic/OpenAI tool schemas — no LangChain, CrewAI, or any named SDK"),
+                 "A hand-built agent using raw Anthropic/OpenAI tool schemas -- no LangChain, CrewAI, or any named SDK"),
     ScenarioSpec("vulnerable_agents/08_nocode_dify_export", ["agent", "dify_export.yml"],
                  90, False, "No-code platform export (Dify-style)",
-                 "A visual workflow builder export — no source code, tools nested under model_config.agent_mode"),
+                 "A visual workflow builder export -- no source code, tools nested under model_config.agent_mode"),
     ScenarioSpec("vulnerable_agents/09_pydantic_ai_llamaindex", ["source", "llamaindex_agent.py"],
                  90, True, "PydanticAI + LlamaIndex",
                  "LlamaIndex FunctionTool.from_defaults() registering a secret-access and shell-exec tool"),
@@ -93,7 +93,7 @@ SCENARIOS: list[ScenarioSpec] = [
 
 SAFE_SCENARIO = ScenarioSpec("safe_agents/01_scoped_search_agent", ["agent", "agent.yaml"],
                               0, False, "Safe scoped search agent",
-                              "A well-scoped, read-only agent — should produce zero findings")
+                              "A well-scoped, read-only agent -- should produce zero findings")
 
 
 def _run_scan(examples_root: Path, spec: ScenarioSpec) -> dict:
@@ -122,7 +122,7 @@ def run_demo() -> int:
         print(f"  {c(DIM, 'Try running from the repo root, or check your installation.')}")
         return 1
 
-    print(f"\n  {c(BOLD+CYAN, 'AgentScan Demo')} — zero-setup evaluation\n")
+    print(f"\n  {c(BOLD+CYAN, 'AgentScan Demo')} -- zero-setup evaluation\n")
     print(f"  {c(DIM, f'Running {len(SCENARIOS)} intentionally vulnerable agents + 1 safe baseline...')}\n")
 
     all_ok = True
@@ -139,7 +139,7 @@ def run_demo() -> int:
         ok = risk >= spec.min_risk and (n_paths >= 1 if spec.expect_path else True)
         icon = c(GREEN, SYM_OK) if ok else c(RED, SYM_FAIL)
         rc = RED if risk >= 70 else ORANGE if risk >= 40 else GREEN
-        print(f"  {icon} Risk {c(rc, f'{risk}/100')}  ·  {n_paths} attack path(s) found")
+        print(f"  {icon} Risk {c(rc, f'{risk}/100')}  -  {n_paths} attack path(s) found")
         if data.get("attack_paths"):
             print(f"    {c(DIM, data['attack_paths'][0]['title'])}")
         print()
@@ -153,14 +153,14 @@ def run_demo() -> int:
     n_findings = data.get("summary", {}).get("total_findings", -1)
     safe_ok = risk == 0 and n_findings == 0
     icon = c(GREEN, SYM_OK) if safe_ok else c(RED, SYM_FAIL)
-    print(f"  {icon} Risk {c(GREEN, '0/100') if safe_ok else c(RED, f'{risk}/100')}  ·  {n_findings} finding(s) — {'no false positives' if safe_ok else 'UNEXPECTED FINDINGS'}")
+    print(f"  {icon} Risk {c(GREEN, '0/100') if safe_ok else c(RED, f'{risk}/100')}  -  {n_findings} finding(s) -- {'no false positives' if safe_ok else 'UNEXPECTED FINDINGS'}")
     print()
     all_ok = all_ok and safe_ok
 
     if all_ok:
         print(f"  {c(GREEN+BOLD, f'{SYM_OK} AgentScan correctly identified all {len(SCENARIOS)} attack patterns with zero false positives.')}")
     else:
-        print(f"  {c(RED+BOLD, SYM_FAIL + " Some scenarios did not match expected output — see above.")}")
+        print(f"  {c(RED+BOLD, SYM_FAIL + " Some scenarios did not match expected output -- see above.")}")
     print(f"\n  {c(DIM, 'Try it on your own code: agentscan doctor . && agentscan source .')}\n")
 
     return 0 if all_ok else 1

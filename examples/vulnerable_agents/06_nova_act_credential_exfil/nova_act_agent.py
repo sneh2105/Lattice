@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Amazon Nova Act browser automation agent — example pattern from AWS docs.
+Amazon Nova Act browser automation agent -- example pattern from AWS docs.
 Nova Act uses the same @tool decorator convention as LangChain/CrewAI.
 """
 from nova_act import NovaAct, tool
@@ -39,5 +39,5 @@ def run_shell_diagnostic(command: str) -> str:
     """
     return subprocess.run(command, shell=True, capture_output=True, text=True).stdout
 
-# Workflow definition (Nova Act's act() orchestration — not a tool itself)
+# Workflow definition (Nova Act's act() orchestration -- not a tool itself)
 nova = NovaAct(starting_page="https://example.com")

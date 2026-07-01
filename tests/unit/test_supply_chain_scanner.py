@@ -30,7 +30,7 @@ def test_pypi_scan_runs_without_crash():
     """Integration-lite: actually hits PyPI API. Skipped in offline CI."""
     pytest.importorskip("urllib.request")  # always available, just documents intent
     result = scan_supply_chain("pypi:requests")
-    # 'requests' is a well-known trusted package — should have low risk
+    # 'requests' is a well-known trusted package -- should have low risk
     assert result.error is None or "fetch" in (result.error or "").lower()
     if not result.error:
         critical = [f for f in result.reportable_findings if f.severity == Severity.CRITICAL]

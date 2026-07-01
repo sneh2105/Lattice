@@ -7,7 +7,7 @@ from agentscan.graph.engine import AttackGraph
 from agentscan.graph.nodes import EdgeType
 from agentscan.models import Severity
 
-# Cap → (target_crown_node, EdgeType, mitre)
+# Cap -> (target_crown_node, EdgeType, mitre)
 CAP_EDGES = {
     "shell_exec":     ("shell_process",      EdgeType.EXECUTES,    ["AML.T0017"]),
     "code_execution": ("shell_process",      EdgeType.EXECUTES,    ["AML.T0017"]),
@@ -152,7 +152,7 @@ def test_combined_capability_paths():
     chain = MCPTrustChain()
     chain.add_server_profile(make_profile("secrets-server", 70, ["secret_access"]))
     chain.add_server_profile(make_profile("network-server", 70, ["network_egress"]))
-    # No explicit calls — agent uses both simultaneously
+    # No explicit calls -- agent uses both simultaneously
     report = chain.analyse()
     # unified graph has aws_credentials and external_network
     # the cross-server chaining edges should create a path

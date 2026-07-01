@@ -6,25 +6,25 @@ Every entity in the agent ecosystem is a node.
 Every relationship or data flow is a directed edge.
 
 Node types:
-  ENTRY_POINT   — attacker-controlled inputs (user prompt, tool response, env var)
-  TOOL          — agent tool / MCP tool
-  RESOURCE      — data stores, secrets, files, databases
-  NETWORK       — external network destinations
-  AGENT         — the agent itself (trust boundary)
-  MCP_SERVER    — an MCP server (trust boundary)
-  PROCESS       — OS process / code execution context
-  CROWN_JEWEL   — high-value targets (credentials, PII, financial data)
+  ENTRY_POINT   -- attacker-controlled inputs (user prompt, tool response, env var)
+  TOOL          -- agent tool / MCP tool
+  RESOURCE      -- data stores, secrets, files, databases
+  NETWORK       -- external network destinations
+  AGENT         -- the agent itself (trust boundary)
+  MCP_SERVER    -- an MCP server (trust boundary)
+  PROCESS       -- OS process / code execution context
+  CROWN_JEWEL   -- high-value targets (credentials, PII, financial data)
 
 Edge types:
-  EXECUTES      — tool can execute code/commands
-  READS         — tool can read from resource
-  WRITES        — tool can write to resource
-  CALLS         — agent calls tool / tool calls API
-  EXFILTRATES   — data can leave the trust boundary
-  ESCALATES     — enables privilege escalation
-  INJECTS       — prompt injection path
-  DEPENDS_ON    — supply chain dependency
-  TRUSTS        — explicit trust relationship
+  EXECUTES      -- tool can execute code/commands
+  READS         -- tool can read from resource
+  WRITES        -- tool can write to resource
+  CALLS         -- agent calls tool / tool calls API
+  EXFILTRATES   -- data can leave the trust boundary
+  ESCALATES     -- enables privilege escalation
+  INJECTS       -- prompt injection path
+  DEPENDS_ON    -- supply chain dependency
+  TRUSTS        -- explicit trust relationship
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ class EdgeType(str, Enum):
     TRUSTS     = "trusts"
 
 
-# Crown jewel value weights — used for blast radius scoring
+# Crown jewel value weights -- used for blast radius scoring
 CROWN_JEWEL_VALUE = {
     "aws_credentials":      100,
     "cloud_credentials":    100,
@@ -100,7 +100,7 @@ class Edge:
     label: str = ""
     properties: dict[str, Any] = field(default_factory=dict)
     # Confidence that this edge exists
-    confidence: float = 1.0   # 0.0 – 1.0
+    confidence: float = 1.0   # 0.0 - 1.0
     # MITRE ATLAS technique this edge represents
     mitre: list[str] = field(default_factory=list)
 
@@ -108,7 +108,7 @@ class Edge:
         return hash((self.src, self.dst, self.type))
 
 
-# ── Predefined nodes that always exist in the graph ─────────────────────────
+# -- Predefined nodes that always exist in the graph -------------------------
 
 ATTACKER_ENTRY_NODES: dict[str, Node] = {
     "user_prompt": Node(
@@ -123,21 +123,21 @@ ATTACKER_ENTRY_NODES: dict[str, Node] = {
         type=NodeType.ENTRY_POINT,
         label="Tool Response (Indirect Injection)",
         attacker_controlled=True,
-        properties={"description": "Content returned by a tool — attacker may control via MITM or malicious data"},
+        properties={"description": "Content returned by a tool -- attacker may control via MITM or malicious data"},
     ),
     "rag_context": Node(
         id="rag_context",
         type=NodeType.ENTRY_POINT,
         label="RAG Context / Retrieved Documents",
         attacker_controlled=True,
-        properties={"description": "Documents retrieved from vector store — may contain injected instructions"},
+        properties={"description": "Documents retrieved from vector store -- may contain injected instructions"},
     ),
     "env_vars": Node(
         id="env_vars",
         type=NodeType.ENTRY_POINT,
         label="Environment Variables",
         attacker_controlled=False,
-        properties={"description": "Process environment — may contain secrets"},
+        properties={"description": "Process environment -- may contain secrets"},
     ),
 }
 

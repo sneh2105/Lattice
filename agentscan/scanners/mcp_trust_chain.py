@@ -11,23 +11,23 @@ Key problems this solves:
    Agent trusts Server A (score: 80).
    Server A calls Server B (score: 20, has shell_exec).
    Agent inherits Server B's risk even though it never declared it.
-   → Effective trust of Server A = min(A, B) = 20.
+   -> Effective trust of Server A = min(A, B) = 20.
 
 2. BLAST RADIUS ACROSS SERVER BOUNDARIES
    Server A: read-only search tool.
    Server B: network egress tool.
    Agent uses both.
-   → Combined attack path: injection → Server A search → Server B HTTP → exfil.
+   -> Combined attack path: injection -> Server A search -> Server B HTTP -> exfil.
    Neither server alone looks dangerous. Together they form a critical path.
 
 3. TRUST BOUNDARY VIOLATIONS
    Server A declares it only does "read-only database access."
    But it calls Server B which has write access.
-   → Server A's declared scope is violated by its dependency.
+   -> Server A's declared scope is violated by its dependency.
 
 4. CIRCULAR TRUST / CYCLE DETECTION
    Server A calls Server B calls Server A.
-   → Infinite trust propagation loop if not detected.
+   -> Infinite trust propagation loop if not detected.
 
 Architecture:
   MCPTrustChain holds a graph of MCPServerProfile nodes.
@@ -54,7 +54,7 @@ from agentscan.graph.engine import AttackGraph, build_graph_from_scan, graph_pat
 from agentscan.graph.nodes import Node, Edge, NodeType, EdgeType
 
 
-# ── Trust propagation rules ──────────────────────────────────────────────────
+# -- Trust propagation rules --------------------------------------------------
 
 # How much trust degrades per hop in a server-to-server call chain
 TRUST_HOP_PENALTY = 10
@@ -105,7 +105,7 @@ class CrossServerPath:
 class MCPTrustChainReport:
     """Complete multi-server trust chain analysis report."""
     targets: list[str]
-    server_profiles: dict[str, MCPServerProfile]   # server_id → profile
+    server_profiles: dict[str, MCPServerProfile]   # server_id -> profile
     edges: list[ServerEdge]
     trust_propagation: dict[str, TrustPropagationResult]
     cross_server_paths: list[CrossServerPath]
@@ -132,8 +132,8 @@ class MCPTrustChain:
 
     def __init__(self):
         self._targets: list[str] = []
-        self._profiles: dict[str, MCPServerProfile] = {}     # name → profile
-        self._id_map: dict[str, str] = {}                    # name → server_id
+        self._profiles: dict[str, MCPServerProfile] = {}     # name -> profile
+        self._id_map: dict[str, str] = {}                    # name -> server_id
         self._declared_edges: list[tuple[str, str]] = []     # (src_name, dst_name)
 
     def add_server(self, target: str, timeout: int = 10) -> str:
@@ -191,7 +191,7 @@ class MCPTrustChain:
             scan_duration_ms=elapsed_ms,
         )
 
-    # ── Internal methods ─────────────────────────────────────────────────────
+    # -- Internal methods -----------------------------------------------------
 
     def _build_edges(self) -> list[ServerEdge]:
         """Build declared + inferred edges between servers."""
@@ -234,7 +234,7 @@ class MCPTrustChain:
         """
         unified = AttackGraph()
 
-        # Build id→name reverse map
+        # Build id->name reverse map
         id_to_name = {v: k for k, v in self._id_map.items()}
 
         # Merge each server's graph
@@ -354,7 +354,7 @@ class MCPTrustChain:
                 propagation_path=[name],
             )
 
-        # Build adjacency: src → list of dst names
+        # Build adjacency: src -> list of dst names
         adj: dict[str, list[str]] = defaultdict(list)
         id_to_name = {v: k for k, v in self._id_map.items()}
         for se in edges:
@@ -367,7 +367,7 @@ class MCPTrustChain:
         # Detect cycles first
         cycles = self._detect_cycles(adj)
 
-        # BFS propagation — propagate from leaves upward
+        # BFS propagation -- propagate from leaves upward
         # For each server, compute effective trust from all dependencies
         changed = True
         iterations = 0
@@ -442,7 +442,7 @@ class MCPTrustChain:
                     servers_in_path.append(server)
 
             if len(servers_in_path) < 2 and len(self._profiles) > 1:
-                # Single-server path in a multi-server context — still relevant
+                # Single-server path in a multi-server context -- still relevant
                 # but not a cross-server path
                 pass
 
@@ -459,7 +459,7 @@ class MCPTrustChain:
             if len(servers_in_path) >= 2:
                 description = (
                     f"This attack path crosses {len(servers_in_path)} MCP server boundary(ies): "
-                    f"{' → '.join(servers_in_path)}.\n\n"
+                    f"{' -> '.join(servers_in_path)}.\n\n"
                     "This is particularly dangerous because each server may appear safe in isolation "
                     "but together they form a complete exploit chain.\n\n"
                 ) + description
@@ -545,8 +545,8 @@ class MCPTrustChain:
                     evidence=[Evidence(
                         source="unified_attack_graph",
                         field="cross_server_path",
-                        observed_value=" → ".join(path.step_labels),
-                        explanation=f"Score: {path.composite_score:.1f}  Servers: {' → '.join(path.servers_involved)}",
+                        observed_value=" -> ".join(path.step_labels),
+                        explanation=f"Score: {path.composite_score:.1f}  Servers: {' -> '.join(path.servers_involved)}",
                     )],
                     mitre_atlas=path.mitre_atlas,
                     tags=["mcp-trust-chain", "cross-server-path"],
@@ -560,7 +560,7 @@ class MCPTrustChain:
                 dst = id_to_name.get(se.dst_id, se.dst_id)
                 findings.append(Finding(
                     id=f"CHAIN-UNDECLARED-DEP-{src[:15].upper()}",
-                    title=f"Undeclared server dependency: '{src}' → '{dst}'",
+                    title=f"Undeclared server dependency: '{src}' -> '{dst}'",
                     severity=Severity.MEDIUM,
                     confidence=ConfidenceLevel.MEDIUM,
                     scanner="mcp_trust_chain",
@@ -571,14 +571,14 @@ class MCPTrustChain:
                     ),
                     impact="Hidden trust relationship exposes agent to undisclosed risk",
                     remediation=(
-                        f"Explicitly document the '{src}' → '{dst}' dependency. "
+                        f"Explicitly document the '{src}' -> '{dst}' dependency. "
                         "Add it to the server manifest and ensure '{dst}' passes security review."
                     ),
                     evidence=[Evidence(
                         source="tool_description_analysis",
                         field="description",
                         observed_value=f"{src} references {dst}",
-                        explanation="Server name found in tool description — inferred dependency",
+                        explanation="Server name found in tool description -- inferred dependency",
                     )],
                     mitre_atlas=["AML.T0048"],
                     tags=["mcp-trust-chain", "undeclared-dependency"],

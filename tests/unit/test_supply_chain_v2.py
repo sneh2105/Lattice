@@ -40,7 +40,7 @@ def test_pypi_typosquat_detected():
 def test_hf_model_scan():
     r = scan_supply_chain("hf:microsoft/phi-3")
     assert r.scanner_type == "supply_chain_v2"
-    # Well-known Microsoft model — should not have CRITICAL findings
+    # Well-known Microsoft model -- should not have CRITICAL findings
     if not r.error:
         crits = [f for f in r.findings if f.severity == Severity.CRITICAL]
         assert not crits or all("pickle" in f.title.lower() for f in crits)

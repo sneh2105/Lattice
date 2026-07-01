@@ -4,7 +4,7 @@ Prompt Flow Analyser
 ====================
 Models the complete prompt data flow through an agent:
 
-  User → System Prompt → Memory → RAG → Tool → LLM → Response
+  User -> System Prompt -> Memory -> RAG -> Tool -> LLM -> Response
 
 Answers:
   1. Can prompt injection reach tools?
@@ -64,8 +64,8 @@ class PromptFlowAnalyser:
     Analyses the data flow through a prompt/agent execution.
 
     Can operate in two modes:
-    1. Static — given a system prompt, tools, RAG config
-    2. Runtime — given an AgentSession with actual events
+    1. Static -- given a system prompt, tools, RAG config
+    2. Runtime -- given an AgentSession with actual events
     """
 
     def analyse_session(self, session: AgentSession) -> PromptFlowReport:
@@ -83,7 +83,7 @@ class PromptFlowAnalyser:
         tool_results = [e for e in session.events if e.type == EventType.TOOL_RESULT]
         memory_reads = [e for e in session.events if e.type == EventType.MEMORY_READ]
 
-        # ── Build flow nodes ──────────────────────────────────────────────────
+        # -- Build flow nodes --------------------------------------------------
 
         # User input node
         user_msgs = []
@@ -152,7 +152,7 @@ class PromptFlowAnalyser:
                 findings=t_findings,
             ))
 
-        # Tool results → back to LLM
+        # Tool results -> back to LLM
         for tr in tool_results[:3]:
             tool_name = tr.data.get("tool","?")
             result_text = json_flatten(tr.data.get("result",""))
@@ -172,14 +172,14 @@ class PromptFlowAnalyser:
         if self._check_secrets(resp_text):
             resp_risk = "critical"
             secret_locations.append("llm_response")
-            resp_findings_list.append("Secret pattern in LLM response — credential leak in output")
+            resp_findings_list.append("Secret pattern in LLM response -- credential leak in output")
         nodes.append(FlowNode(
             id="response", label="LLM Response", stage="output",
             data_sample=resp_text[:200], risk_level=resp_risk,
             findings=resp_findings_list,
         ))
 
-        # ── Build flow edges ──────────────────────────────────────────────────
+        # -- Build flow edges --------------------------------------------------
         edges = [
             FlowEdge("user_input",    "llm",        "user message",
                      carries_attacker_data="user_input" in injection_reach),
@@ -200,7 +200,7 @@ class PromptFlowAnalyser:
         edges.append(FlowEdge("llm", "response", "generation",
                                carries_secrets="llm_response" in secret_locations))
 
-        # ── Findings ──────────────────────────────────────────────────────────
+        # -- Findings ----------------------------------------------------------
         if injection_reach:
             findings.append(Finding(
                 id="PF-INJECT-REACHABLE",
@@ -212,7 +212,7 @@ class PromptFlowAnalyser:
                     f"{', '.join(injection_reach)}. "
                     "Any of these stages can propagate injected instructions to the LLM or tools."
                 ),
-                impact="Full prompt injection attack surface — attacker can override instructions, "
+                impact="Full prompt injection attack surface -- attacker can override instructions, "
                        "call arbitrary tools, or exfiltrate data.",
                 remediation="Apply input validation at every trust boundary. Treat tool results and "
                              "RAG context as untrusted. Use structured output parsing rather than "
@@ -296,7 +296,7 @@ class PromptFlowAnalyser:
                     scanner="prompt_flow_static",
                     explanation="The system prompt contains what appears to be credentials or secrets. "
                                 "These will be included in every LLM context window.",
-                    impact="Secrets exposed in every request — visible in logs and injectable via prompt attacks.",
+                    impact="Secrets exposed in every request -- visible in logs and injectable via prompt attacks.",
                     remediation="Remove all credentials from system prompts. Inject via runtime environment.",
                     evidence=[Evidence("system_prompt", "content", system_prompt[:200],
                                        "Secret pattern matched in system prompt")],
@@ -311,7 +311,7 @@ class PromptFlowAnalyser:
         if has_rag:
             nodes.append(FlowNode("rag", "RAG / Retrieved Docs", "context",
                                    "(external content)", "medium",
-                                   ["External content — injection risk if not sanitised"]))
+                                   ["External content -- injection risk if not sanitised"]))
             injection_reach.append("rag_context")
 
         if has_memory:
@@ -339,7 +339,7 @@ class PromptFlowAnalyser:
                     f"injection reach: {len(injection_reach)} | secrets: {len(secret_locations)}",
         )
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
+    # -- Helpers ---------------------------------------------------------------
 
     def _check_injection(self, text: str, source: str) -> tuple[str, list[str]]:
         if not text: return "safe", []

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""LlamaIndex agent — document research assistant."""
+"""LlamaIndex agent -- document research assistant."""
 from llama_index.core.tools import FunctionTool
 from llama_index.core.agent import OpenAIAgent
 

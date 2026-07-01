@@ -23,7 +23,7 @@ class AgentScanBedrockAdapter:
     """
     Adapter for AWS Bedrock Agents.
 
-    Bedrock Agents don't have a traditional callback system —
+    Bedrock Agents don't have a traditional callback system --
     instead, all events come back in the response stream as trace objects.
 
     This adapter:

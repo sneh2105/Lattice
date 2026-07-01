@@ -194,7 +194,7 @@ def _check_server_metadata(manifest: dict) -> list[Finding]:
                 "Without authentication, any agent (or attacker) can call this server's tools."
             ),
             impact="Unauthorised tool invocation by any network-accessible client",
-            remediation="Implement OAuth 2.0 or API key authentication. The MCP spec supports OAuth — use it.",
+            remediation="Implement OAuth 2.0 or API key authentication. The MCP spec supports OAuth -- use it.",
             evidence=[Evidence(
                 source="server_manifest",
                 field="auth",

@@ -2,11 +2,11 @@
 """
 Agent Identity Graph
 ====================
-Builds a complete picture of what an agent can actually access —
+Builds a complete picture of what an agent can actually access --
 not just "it has shell" but:
 
-  Identity → Permissions → Secrets → Memory → Vector DB
-  → LLM → Tools → Network → Filesystem → Cloud APIs
+  Identity -> Permissions -> Secrets -> Memory -> Vector DB
+  -> LLM -> Tools -> Network -> Filesystem -> Cloud APIs
 
 Answers: "What can this agent actually do?"
 
@@ -87,10 +87,10 @@ class AgentIdentityGraph:
             return "YES" if self.can_access_email else "NO"
         if "memory" in q or "remember" in q:
             return "YES" if self.has_persistent_memory else "NO"
-        return "Unknown — ask about a specific capability"
+        return "Unknown -- ask about a specific capability"
 
 
-# ── Capability taxonomy ───────────────────────────────────────────────────────
+# -- Capability taxonomy -------------------------------------------------------
 
 CAPABILITY_CATEGORIES = {
     # identity
@@ -151,7 +151,7 @@ def build_identity_graph(
 
     agent_node_id = f"agent_{agent_name.lower().replace(' ','_')}"
 
-    # ── Identity node ─────────────────────────────────────────────────────────
+    # -- Identity node ---------------------------------------------------------
     ident = identity or {}
     ident_type = ident.get("type", "unknown")
     ident_scoped = ident.get("scoped", False)
@@ -165,7 +165,7 @@ def build_identity_graph(
         access_level="admin" if ident_type in ("service_account", "root") else "read",
         scoped=ident_scoped,
         details=ident,
-        risk_notes=([] if identity_defined else ["No identity configured — agent runs without explicit identity"]),
+        risk_notes=([] if identity_defined else ["No identity configured -- agent runs without explicit identity"]),
     ))
     relationships.append(AccessRelationship("identity", agent_node_id, "authenticates_as", "config", False))
 
@@ -185,14 +185,14 @@ def build_identity_graph(
             mitre_atlas=["AML.T0048"],
         ))
 
-    # ── Capability nodes ──────────────────────────────────────────────────────
+    # -- Capability nodes ------------------------------------------------------
     for cap in capabilities:
         if cap not in CAPABILITY_CATEGORIES:
             continue
         cat, label, access, scoped_by_default = CAPABILITY_CATEGORIES[cap]
         risk_notes = []
         if not scoped_by_default:
-            risk_notes.append(f"No inherent scoping — requires explicit restriction")
+            risk_notes.append(f"No inherent scoping -- requires explicit restriction")
 
         node = IdentityNode(
             id=f"cap_{cap}",
@@ -208,7 +208,7 @@ def build_identity_graph(
             agent_node_id, f"cap_{cap}", access, "tool", False
         ))
 
-    # ── Memory node ───────────────────────────────────────────────────────────
+    # -- Memory node -----------------------------------------------------------
     mem = memory_config or {}
     if mem or "memory_read" in capabilities or "memory_write" in capabilities:
         persistent = mem.get("persistent", True)
@@ -224,7 +224,7 @@ def build_identity_graph(
         ))
         relationships.append(AccessRelationship(agent_node_id, "memory", "read/write", "config", False))
 
-    # ── Vector DB / RAG node ──────────────────────────────────────────────────
+    # -- Vector DB / RAG node --------------------------------------------------
     if "vector_db" in capabilities or mem.get("type") in ("vectorstore", "pinecone", "weaviate", "chromadb"):
         nodes.append(IdentityNode(
             id="vectordb",
@@ -236,12 +236,12 @@ def build_identity_graph(
                      "collections": mem.get("allowed_collections", ["*"])},
             risk_notes=(
                 [] if mem.get("allowed_collections")
-                else ["No collection scoping — agent can read entire vector store"]
+                else ["No collection scoping -- agent can read entire vector store"]
             ),
         ))
         relationships.append(AccessRelationship(agent_node_id, "vectordb", "read", "config", False))
 
-    # ── LLM node ─────────────────────────────────────────────────────────────
+    # -- LLM node -------------------------------------------------------------
     nodes.append(IdentityNode(
         id="llm",
         category="llm",
@@ -249,11 +249,11 @@ def build_identity_graph(
         access_level="write",
         scoped=False,
         details={},
-        risk_notes=["LLM is the core reasoning component — all prompt injections target this"],
+        risk_notes=["LLM is the core reasoning component -- all prompt injections target this"],
     ))
     relationships.append(AccessRelationship(agent_node_id, "llm", "invokes", "config", False))
 
-    # ── Cloud node ────────────────────────────────────────────────────────────
+    # -- Cloud node ------------------------------------------------------------
     cloud = cloud_config or {}
     if cloud or "cloud_api" in capabilities:
         provider = cloud.get("provider", "unknown")
@@ -265,7 +265,7 @@ def build_identity_graph(
             access_level="admin" if not iam_scoped else "read",
             scoped=iam_scoped,
             details=cloud,
-            risk_notes=([] if iam_scoped else [f"No IAM scoping for {provider} access — may have broad permissions"]),
+            risk_notes=([] if iam_scoped else [f"No IAM scoping for {provider} access -- may have broad permissions"]),
         ))
         relationships.append(AccessRelationship(agent_node_id, "cloud", "calls", "tool", False))
 
@@ -284,7 +284,7 @@ def build_identity_graph(
                 mitre_atlas=["AML.T0048"],
             ))
 
-    # ── Network policy node ───────────────────────────────────────────────────
+    # -- Network policy node ---------------------------------------------------
     net = network_policy or {}
     if "network_egress" in capabilities or "email_send" in capabilities:
         has_allowlist = bool(net.get("allowlist"))
@@ -297,9 +297,9 @@ def build_identity_graph(
             scoped=has_allowlist,
             details=net,
             risk_notes=(
-                [] if has_allowlist else ["No domain allowlist — can reach any internet destination"]
+                [] if has_allowlist else ["No domain allowlist -- can reach any internet destination"]
             ) + (
-                [] if blocks_private else ["Private IP ranges not blocked — SSRF possible"]
+                [] if blocks_private else ["Private IP ranges not blocked -- SSRF possible"]
             ),
         ))
         relationships.append(AccessRelationship(agent_node_id, "network", "egress", "tool", False))
@@ -307,7 +307,7 @@ def build_identity_graph(
         if not has_allowlist:
             findings.append(Finding(
                 id="ID-NET-NO-ALLOWLIST",
-                title="No network egress allowlist — agent can reach any internet host",
+                title="No network egress allowlist -- agent can reach any internet host",
                 severity=Severity.HIGH, confidence=ConfidenceLevel.HIGH,
                 scanner="identity_graph",
                 explanation="The agent has outbound network access with no domain allowlist. "
@@ -319,7 +319,7 @@ def build_identity_graph(
                 mitre_atlas=["AML.T0040"],
             ))
 
-    # ── Compute effective permissions ─────────────────────────────────────────
+    # -- Compute effective permissions -----------------------------------------
     effective_perms = []
     cap_to_human = {
         "shell_exec": "Execute OS commands", "code_execution": "Execute arbitrary code",
@@ -332,10 +332,10 @@ def build_identity_graph(
     for cap in capabilities:
         effective_perms.append(cap_to_human.get(cap, cap))
 
-    # ── Risk score ────────────────────────────────────────────────────────────
+    # -- Risk score ------------------------------------------------------------
     risk_score = min(sum(CAPABILITY_RISK.get(c, 2) for c in capabilities), 100)
 
-    # ── Over-privilege finding ────────────────────────────────────────────────
+    # -- Over-privilege finding ------------------------------------------------
     high_risk_caps = [c for c in capabilities if CAPABILITY_RISK.get(c, 0) >= 25]
     if len(high_risk_caps) >= 3:
         findings.append(Finding(
@@ -346,7 +346,7 @@ def build_identity_graph(
             explanation=(
                 f"This agent has {len(high_risk_caps)} high-risk capabilities simultaneously: "
                 f"{', '.join(high_risk_caps)}. Each capability is potentially justifiable alone, "
-                "but together they form a complete attack surface — any compromise gives an attacker "
+                "but together they form a complete attack surface -- any compromise gives an attacker "
                 "multiple avenues to cause damage."
             ),
             impact="Complete host and data compromise possible from a single prompt injection.",
@@ -355,7 +355,7 @@ def build_identity_graph(
                 "dedicated agents with narrow scopes. A search agent should not have shell access."
             ),
             evidence=[Evidence("capabilities", "high_risk", high_risk_caps,
-                               f"{len(high_risk_caps)} capabilities each scoring ≥25 risk points")],
+                               f"{len(high_risk_caps)} capabilities each scoring ?25 risk points")],
             mitre_atlas=["AML.T0048"],
         ))
 

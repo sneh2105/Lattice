@@ -5,11 +5,11 @@ AI Attack Graph Engine
 Builds a directed graph of nodes (tools, resources, entry points, crown jewels)
 and edges (data flows, execution paths, trust relationships), then runs:
 
-  1. Reachability analysis   — from each attacker-controlled entry point,
+  1. Reachability analysis   -- from each attacker-controlled entry point,
                                what crown jewels are reachable?
-  2. Path finding            — shortest + most dangerous paths to each crown jewel
-  3. Blast radius scoring    — weighted sum of reachable crown jewel values
-  4. Attack path ranking     — ordered by exploitability × impact
+  2. Path finding            -- shortest + most dangerous paths to each crown jewel
+  3. Blast radius scoring    -- weighted sum of reachable crown jewel values
+  4. Attack path ranking     -- ordered by exploitability x impact
 
 This is the Wiz-inspired insight: don't report individual findings,
 report the complete chains from attacker input to high-value impact.
@@ -38,7 +38,7 @@ class GraphPath:
     # Scoring
     exploitability: float   # 0-1: how easy is this to exploit?
     impact: int             # 0-100: crown jewel value
-    composite_score: float  # exploitability × impact
+    composite_score: float  # exploitability x impact
     # Narrative
     title: str
     description: str
@@ -82,7 +82,7 @@ class AttackGraph:
     def get_node(self, node_id: str) -> Node | None:
         return self.nodes.get(node_id)
 
-    # ── Reachability ────────────────────────────────────────────────────────
+    # -- Reachability --------------------------------------------------------
 
     def reachable_from(self, start_id: str, min_confidence: float = 0.5) -> set[str]:
         """BFS: all node IDs reachable from start_id."""
@@ -147,12 +147,12 @@ class AttackGraph:
                 edges.append(e)
         return edges
 
-    # ── Path finding ────────────────────────────────────────────────────────
+    # -- Path finding --------------------------------------------------------
 
     def find_attack_paths(self, min_confidence: float = 0.5) -> list[GraphPath]:
         """
         Find all paths from attacker-controlled entry points to crown jewels.
-        Returns paths sorted by composite score (exploitability × impact).
+        Returns paths sorted by composite score (exploitability x impact).
         """
         paths: list[GraphPath] = []
         entry_ids = [nid for nid, n in self.nodes.items() if n.attacker_controlled]
@@ -210,7 +210,7 @@ class AttackGraph:
 
         return sorted(seen.values(), key=lambda p: -p.composite_score)
 
-    # ── Blast radius ────────────────────────────────────────────────────────
+    # -- Blast radius --------------------------------------------------------
 
     def blast_radius(self, entry_id: str) -> dict[str, Any]:
         """
@@ -231,11 +231,11 @@ class AttackGraph:
             "max_single_impact": max((j.crown_jewel_value for j in jewels), default=0),
         }
 
-    # ── Trust score ─────────────────────────────────────────────────────────
+    # -- Trust score ---------------------------------------------------------
 
     def trust_score(self, node_id: str) -> dict[str, Any]:
         """
-        Compute a trust score (0–100) for a node, especially MCP servers.
+        Compute a trust score (0-100) for a node, especially MCP servers.
         Higher = more trustworthy.
         Deductions for: dangerous capabilities, no auth, reachable from attacker inputs,
         many outbound edges, connection to crown jewels.
@@ -293,7 +293,7 @@ class AttackGraph:
             "deductions": reasons,
         }
 
-    # ── Serialisation ────────────────────────────────────────────────────────
+    # -- Serialisation --------------------------------------------------------
 
     def to_dict(self) -> dict:
         return {
@@ -318,11 +318,11 @@ class AttackGraph:
         }
 
 
-# ── Scoring helpers ──────────────────────────────────────────────────────────
+# -- Scoring helpers ----------------------------------------------------------
 
 def _score_exploitability(nodes: list[Node], edges: list[Edge]) -> float:
     """
-    0.0 – 1.0: how easy is this path to exploit?
+    0.0 - 1.0: how easy is this path to exploit?
     Shorter paths with attacker-controlled entries and high-confidence edges = higher score.
     """
     if not nodes:
@@ -339,9 +339,9 @@ def _score_exploitability(nodes: list[Node], edges: list[Edge]) -> float:
 def _build_narrative(entry: Node, crown: Node, nodes: list[Node], edges: list[Edge]) -> tuple[str, str]:
     """Generate a human-readable title and description for an attack path."""
     step_labels = [n.label for n in nodes]
-    chain = " → ".join(step_labels)
+    chain = " -> ".join(step_labels)
 
-    title = f"{entry.label} → {crown.label}"
+    title = f"{entry.label} -> {crown.label}"
 
     edge_verbs = {
         EdgeType.EXECUTES: "executes",
@@ -374,7 +374,7 @@ def _build_narrative(entry: Node, crown: Node, nodes: list[Node], edges: list[Ed
     return title, description
 
 
-# ── Graph builder from scan results ─────────────────────────────────────────
+# -- Graph builder from scan results -----------------------------------------
 
 def build_graph_from_scan(result: ScanResult) -> AttackGraph:
     """
@@ -400,7 +400,7 @@ def build_graph_from_scan(result: ScanResult) -> AttackGraph:
     )
     g.add_node(agent_node)
 
-    # Agent trusts user prompt → add injection edge
+    # Agent trusts user prompt -> add injection edge
     g.add_edge(Edge(
         src="user_prompt", dst="agent",
         type=EdgeType.INJECTS,
@@ -469,7 +469,7 @@ def build_graph_from_scan(result: ScanResult) -> AttackGraph:
                         mitre=mitre,
                     ))
                 else:
-                    # Direct edge agent → resource
+                    # Direct edge agent -> resource
                     g.add_edge(Edge(
                         src=src, dst=dst,
                         type=etype,
@@ -478,7 +478,7 @@ def build_graph_from_scan(result: ScanResult) -> AttackGraph:
                         mitre=mitre,
                     ))
 
-    # Shell → credentials escalation path (if both exist)
+    # Shell -> credentials escalation path (if both exist)
     if "shell_exec" in caps and "secret_access" in caps:
         g.add_edge(Edge(
             src="shell_process", dst="aws_credentials",
@@ -488,7 +488,7 @@ def build_graph_from_scan(result: ScanResult) -> AttackGraph:
             mitre=["AML.T0051"],
         ))
 
-    # Credentials → external (if network exists)
+    # Credentials -> external (if network exists)
     if "secret_access" in caps and "network_egress" in caps:
         g.add_edge(Edge(
             src="aws_credentials", dst="external_network",
@@ -505,7 +505,7 @@ def build_graph_from_scan(result: ScanResult) -> AttackGraph:
             mitre=["AML.T0040"],
         ))
 
-    # Database → external (if network exists)
+    # Database -> external (if network exists)
     if "database" in caps and "network_egress" in caps:
         g.add_edge(Edge(
             src="database_contents", dst="external_network",
@@ -515,7 +515,7 @@ def build_graph_from_scan(result: ScanResult) -> AttackGraph:
             mitre=["AML.T0040"],
         ))
 
-    # Shell → filesystem
+    # Shell -> filesystem
     if "shell_exec" in caps:
         g.add_edge(Edge(
             src="shell_process", dst="filesystem",
@@ -550,7 +550,7 @@ def graph_paths_to_attack_paths(paths: list[GraphPath]) -> list[AttackPath]:
             evidence=[Evidence(
                 source="attack_graph",
                 field="path",
-                observed_value=" → ".join(gp.step_labels()),
+                observed_value=" -> ".join(gp.step_labels()),
                 explanation=f"Exploitability: {gp.exploitability:.0%}  Impact: {gp.impact}/100  Score: {gp.composite_score:.1f}",
             )],
             mitre_atlas=gp.mitre_atlas,

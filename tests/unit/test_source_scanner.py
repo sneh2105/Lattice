@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for the real source-code AST scanner — no YAML required."""
+"""Tests for the real source-code AST scanner -- no YAML required."""
 import tempfile
 from pathlib import Path
 import pytest
@@ -218,7 +218,7 @@ TOOLS = [
 
 def test_raw_api_tool_schema_requires_schema_marker():
     """A list of dicts with name/description but no schema marker should NOT
-    be treated as a tool list — avoids false positives on generic config data."""
+    be treated as a tool list -- avoids false positives on generic config data."""
     path = write_py('''
 USERS = [
     {"name": "alice", "description": "admin user"},
@@ -281,7 +281,7 @@ def execute_admin_command(command: str) -> str:
 
 
 def test_llamaindex_function_tool_detected():
-    """LlamaIndex uses FunctionTool.from_defaults(func) — a registration call, not a decorator."""
+    """LlamaIndex uses FunctionTool.from_defaults(func) -- a registration call, not a decorator."""
     path = write_py('''
 from llama_index.core.tools import FunctionTool
 

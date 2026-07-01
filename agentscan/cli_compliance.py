@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Compliance CLI extension — adds 'agentscan compliance' subcommands.
+Compliance CLI extension -- adds 'agentscan compliance' subcommands.
 
 agentscan compliance map   <scan_target>    Map findings to framework controls
 agentscan compliance dpia  <scan_target>    Generate DPIA document
@@ -43,7 +43,7 @@ def _detect_scanner(target: str):
 
 
 def cmd_map(args):
-    """agentscan compliance map <target> — print framework control mapping."""
+    """agentscan compliance map <target> -- print framework control mapping."""
     result = _detect_scanner(args.target)
     if result.error:
         print(f"Scan error: {result.error}", file=sys.stderr)
@@ -51,7 +51,7 @@ def cmd_map(args):
 
     report = map_findings_to_controls(result)
 
-    print(f"\n  {_col(BOLD + CYAN, 'AgentScan Compliance Map')} — {args.target}\n")
+    print(f"\n  {_col(BOLD + CYAN, 'AgentScan Compliance Map')} -- {args.target}\n")
     print(f"  Overall posture: {_col(RED if report.overall_posture == 'non-compliant' else ORANGE if report.overall_posture == 'partial' else GREEN, report.overall_posture.upper())}")
     print(f"  Frameworks covered: {', '.join(report.frameworks_covered)}\n")
 
@@ -66,18 +66,18 @@ def cmd_map(args):
         print(f"    {_col(ORANGE, str(count)):>3} controls  {fw}")
 
     print()
-    print(_col(BOLD, "  Finding → Control mapping:"))
+    print(_col(BOLD, "  Finding -> Control mapping:"))
     for mapping in report.mappings:
         print(f"\n  {_col(CYAN, mapping.finding_title)} [{mapping.finding_severity}]")
         for ctrl in mapping.controls:
             mand = _col(RED, "mandatory") if ctrl.severity == "mandatory" else _col(BLUE, "recommended")
             print(f"    {mand}  {ctrl.framework}  {_col(ORANGE, ctrl.control_id)}  {ctrl.control_name}")
 
-    print(f"\n  {_col(DIM, 'AgentScan v0.1.0 · github.com/sneh2105/agentscan')}\n")
+    print(f"\n  {_col(DIM, 'AgentScan v0.1.0 - github.com/sneh2105/agentscan')}\n")
 
 
 def cmd_dpia(args):
-    """agentscan compliance dpia <target> — generate DPIA."""
+    """agentscan compliance dpia <target> -- generate DPIA."""
     result = _detect_scanner(args.target)
     if result.error:
         print(f"Scan error: {result.error}", file=sys.stderr)
@@ -104,7 +104,7 @@ def cmd_dpia(args):
         risk_col = RED if dpia.overall_risk_level in ("critical", "high") else ORANGE if dpia.overall_risk_level == "medium" else GREEN
         rec_col = RED if dpia.recommended_action == "do-not-deploy" else ORANGE if "controls" in dpia.recommended_action else GREEN
 
-        print(f"\n  {_col(BOLD + CYAN, 'Data Protection Impact Assessment')} — {dpia.agent_name}\n")
+        print(f"\n  {_col(BOLD + CYAN, 'Data Protection Impact Assessment')} -- {dpia.agent_name}\n")
         print(f"  Risk level    : {_col(risk_col, dpia.overall_risk_level.upper())}")
         print(f"  Recommendation: {_col(rec_col, dpia.recommended_action.upper().replace('-', ' '))}")
         print(f"  Frameworks    : {', '.join(dpia.compliance_frameworks)}\n")
@@ -120,12 +120,12 @@ def cmd_dpia(args):
         if dpia.open_gaps:
             print(_col(ORANGE, "  Open gaps requiring manual review:"))
             for gap in dpia.open_gaps:
-                print(f"    • {gap}")
+                print(f"    * {gap}")
         print()
 
 
 def cmd_audit(args):
-    """agentscan compliance audit <target> — generate PDF audit report."""
+    """agentscan compliance audit <target> -- generate PDF audit report."""
     result = _detect_scanner(args.target)
     if result.error:
         print(f"Scan error: {result.error}", file=sys.stderr)
@@ -141,11 +141,11 @@ def cmd_audit(args):
         assessor=args.assessor,
         include_dpia=not args.no_dpia,
     )
-    print(f"✓ Audit report written to: {path}")
+    print(f"[OK] Audit report written to: {path}")
     print(f"  Risk score    : {result.risk_score()}/100")
     print(f"  Findings      : {len(result.reportable_findings)}")
     print(f"  Attack paths  : {len(result.attack_paths)}")
-    print(f"  Frameworks    : RBI · DPDP · SEBI · ISO 42001 · EU AI Act · SOC 2")
+    print(f"  Frameworks    : RBI - DPDP - SEBI - ISO 42001 - EU AI Act - SOC 2")
 
 
 def add_compliance_parser(subparsers):

@@ -49,7 +49,7 @@ class AgentScanAutoGenHook:
         Works with AssistantAgent, UserProxyAgent, ConversableAgent.
         """
         if not hasattr(agent, "register_reply"):
-            raise ValueError(f"Agent {agent} does not have register_reply — is autogen installed?")
+            raise ValueError(f"Agent {agent} does not have register_reply -- is autogen installed?")
 
         monitor = self._monitor
 
@@ -89,7 +89,7 @@ class AgentScanAutoGenHook:
         try:
             yield self._monitor
         finally:
-            pass  # Don't flush here — user calls flush() manually
+            pass  # Don't flush here -- user calls flush() manually
 
     def flush(self) -> RuntimeAnalysisReport:
         return self._monitor.flush()

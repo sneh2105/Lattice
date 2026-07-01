@@ -30,37 +30,37 @@ from typing import Any
 from agentscan.models import ConfidenceLevel, Evidence, Finding, ScanResult, Severity
 
 
-# ── Known threat intelligence ─────────────────────────────────────────────────
+# -- Known threat intelligence -------------------------------------------------
 
 KNOWN_MALICIOUS_PYPI: dict[str, str] = {
-    "pytorch-nightly-cpu":    "Malicious PyTorch lookalike — credential stealer (2023, Lazarus Group)",
-    "torchvision-nightly":    "Malicious torchvision lookalike — credential stealer (2023)",
-    "huggingface-hub-cli":    "Typosquatting huggingface_hub — data exfiltration (2024)",
-    "openai-dev":             "Typosquatting openai — reverse shell payload (2024)",
-    "langchain-core-dev":     "Malicious LangChain lookalike — env var exfiltration (2024)",
+    "pytorch-nightly-cpu":    "Malicious PyTorch lookalike -- credential stealer (2023, Lazarus Group)",
+    "torchvision-nightly":    "Malicious torchvision lookalike -- credential stealer (2023)",
+    "huggingface-hub-cli":    "Typosquatting huggingface_hub -- data exfiltration (2024)",
+    "openai-dev":             "Typosquatting openai -- reverse shell payload (2024)",
+    "langchain-core-dev":     "Malicious LangChain lookalike -- env var exfiltration (2024)",
     "transformers-dev":       "Malicious transformers lookalike (2024)",
-    "anthropic-sdk":          "Typosquatting anthropic — credential harvester (2025)",
-    "crewai-tools-extra":     "Malicious CrewAI extension — agent hijack payload (2025)",
+    "anthropic-sdk":          "Typosquatting anthropic -- credential harvester (2025)",
+    "crewai-tools-extra":     "Malicious CrewAI extension -- agent hijack payload (2025)",
 }
 
 KNOWN_MALICIOUS_NPM: dict[str, str] = {
-    "axios-proxy":            "Axios backdoor — credential exfiltration (2025, North Korea attributed)",
-    "node-fetch-2":           "Typosquatting node-fetch — POST exfil on install (2024)",
+    "axios-proxy":            "Axios backdoor -- credential exfiltration (2025, North Korea attributed)",
+    "node-fetch-2":           "Typosquatting node-fetch -- POST exfil on install (2024)",
     "langchainjs-dev":        "Malicious LangChain.js lookalike (2024)",
     "openai-node-extra":      "Malicious openai SDK lookalike (2024)",
-    "@anthropic/sdk-beta":    "Scoped package squatting — reverse shell (2025)",
+    "@anthropic/sdk-beta":    "Scoped package squatting -- reverse shell (2025)",
 }
 
 # File types dangerous in model repos
 DANGEROUS_MODEL_FILES: dict[str, tuple[str, str, Severity]] = {
-    ".pkl":    ("Pickle file",    "Arbitrary code execution on load — pickle.load() runs __reduce__", Severity.CRITICAL),
+    ".pkl":    ("Pickle file",    "Arbitrary code execution on load -- pickle.load() runs __reduce__", Severity.CRITICAL),
     ".pickle": ("Pickle file",    "Arbitrary code execution on load", Severity.CRITICAL),
-    ".pt":     ("PyTorch checkpoint", "May embed pickle payload — use safetensors instead", Severity.HIGH),
+    ".pt":     ("PyTorch checkpoint", "May embed pickle payload -- use safetensors instead", Severity.HIGH),
     ".pth":    ("PyTorch weights",    "May embed pickle payload", Severity.HIGH),
     ".bin":    ("Binary weights",     "Can embed pickle in older HF format", Severity.MEDIUM),
     ".exe":    ("Executable",         "No legitimate use in a model repo", Severity.CRITICAL),
     ".sh":     ("Shell script",       "Could execute arbitrary commands", Severity.HIGH),
-    ".js":     ("JavaScript",         "Unexpected in model repo — supply chain attack signal", Severity.HIGH),
+    ".js":     ("JavaScript",         "Unexpected in model repo -- supply chain attack signal", Severity.HIGH),
     ".ps1":    ("PowerShell script",  "Could execute arbitrary commands on Windows", Severity.HIGH),
     ".dll":    ("DLL",                "No legitimate use in a model repo", Severity.CRITICAL),
 }
@@ -70,7 +70,7 @@ DATASET_POISON_PATTERNS: list[dict] = [
     {
         "id": "DS-INJECT-IGNORE",
         "pattern": r"ignore\s+(all\s+)?(previous|prior|above|preceding)\s+instructions",
-        "title": "Prompt injection in dataset — ignore-previous-instructions pattern",
+        "title": "Prompt injection in dataset -- ignore-previous-instructions pattern",
         "severity": Severity.CRITICAL,
         "explanation": "Dataset contains text matching classic prompt injection patterns. "
                        "If this dataset is used for RAG or fine-tuning, it can poison the model "
@@ -136,7 +136,7 @@ TRUSTED_HF_ORGS = {
 }
 
 
-# ── Utility ───────────────────────────────────────────────────────────────────
+# -- Utility -------------------------------------------------------------------
 
 def _fetch_json(url: str, timeout: int = 10) -> dict | None:
     try:
@@ -179,7 +179,7 @@ def _edit_distance(a: str, b: str) -> int:
     return prev[-1]
 
 
-# ── PyPI Scanner ─────────────────────────────────────────────────────────────
+# -- PyPI Scanner -------------------------------------------------------------
 
 def _scan_pypi(package_name: str) -> ScanResult:
     start = time.monotonic()
@@ -195,7 +195,7 @@ def _scan_pypi(package_name: str) -> ScanResult:
             confidence=ConfidenceLevel.HIGH,
             scanner="supply_chain_v2",
             explanation=KNOWN_MALICIOUS_PYPI[name_lower],
-            impact="Installing this package executes malicious code — credential theft, reverse shell, or data exfiltration.",
+            impact="Installing this package executes malicious code -- credential theft, reverse shell, or data exfiltration.",
             remediation=f"Do not install '{package_name}'. Use the legitimate package instead. Check for typosquatting.",
             evidence=[Evidence("known_malicious_db", "package_name", package_name, "Exact match in AgentScan threat intelligence database")],
             mitre_atlas=["AML.T0020"],
@@ -210,11 +210,11 @@ def _scan_pypi(package_name: str) -> ScanResult:
             severity=Severity.HIGH,
             confidence=ConfidenceLevel.MEDIUM,
             scanner="supply_chain_v2",
-            explanation=f"'{package_name}' has a name similar to a trusted publisher (edit distance ≤2). "
+            explanation=f"'{package_name}' has a name similar to a trusted publisher (edit distance ?2). "
                         "This is a common technique used in supply chain attacks.",
             impact="Package may be malicious impersonation of a legitimate library.",
             remediation=f"Verify '{package_name}' is the intended package. Check the exact spelling of the legitimate package.",
-            evidence=[Evidence("name_analysis", "package_name", package_name, "Edit distance ≤2 from a trusted publisher name")],
+            evidence=[Evidence("name_analysis", "package_name", package_name, "Edit distance ?2 from a trusted publisher name")],
             mitre_atlas=["AML.T0020"],
             tags=["supply-chain", "typosquatting", "pypi"],
         ))
@@ -247,7 +247,7 @@ def _scan_pypi(package_name: str) -> ScanResult:
             confidence=ConfidenceLevel.HIGH,
             scanner="supply_chain_v2",
             explanation=f"'{package_name}' has no GitHub/source link. Legitimate packages almost always include one. Malicious packages often omit this to prevent code inspection.",
-            impact="Cannot verify package source — may be obfuscated malware.",
+            impact="Cannot verify package source -- may be obfuscated malware.",
             remediation=f"Search for '{package_name}' source on GitHub before installing.",
             evidence=[Evidence("pypi_metadata", "project_urls", list(project_urls.keys()), "No source/repository URL found")],
             mitre_atlas=["AML.T0020"],
@@ -279,7 +279,7 @@ def _scan_pypi(package_name: str) -> ScanResult:
     )
 
 
-# ── npm Scanner ───────────────────────────────────────────────────────────────
+# -- npm Scanner ---------------------------------------------------------------
 
 def _scan_npm(package_name: str) -> ScanResult:
     start = time.monotonic()
@@ -371,7 +371,7 @@ def _scan_npm(package_name: str) -> ScanResult:
             scanner="supply_chain_v2",
             explanation=f"'{package_name}' has one maintainer and no organisation backing. "
                         "Account takeover of a single maintainer is a common supply chain attack vector.",
-            impact="Single point of failure — maintainer account takeover compromises all users.",
+            impact="Single point of failure -- maintainer account takeover compromises all users.",
             remediation="Prefer packages with multiple maintainers or org backing for production use.",
             evidence=[Evidence("npm_metadata", "maintainers", [m.get("name") for m in maintainers],
                                "Single maintainer account")],
@@ -388,7 +388,7 @@ def _scan_npm(package_name: str) -> ScanResult:
     )
 
 
-# ── HuggingFace Model Scanner ─────────────────────────────────────────────────
+# -- HuggingFace Model Scanner -------------------------------------------------
 
 def _scan_hf_model(repo_id: str) -> ScanResult:
     start = time.monotonic()
@@ -418,10 +418,10 @@ def _scan_hf_model(repo_id: str) -> ScanResult:
             conf = ConfidenceLevel.HIGH if ext in (".pkl", ".pickle", ".exe", ".dll") else ConfidenceLevel.MEDIUM
             extra = ""
             if ext in (".pkl", ".pickle"):
-                extra = " Use `safetensors` format instead — it is immune to pickle RCE."
+                extra = " Use `safetensors` format instead -- it is immune to pickle RCE."
             elif has_safetensors and ext in (".pt", ".pth", ".bin"):
                 sev = Severity.LOW
-                extra = " (Note: safetensors also present — this file may be legacy/optional.)"
+                extra = " (Note: safetensors also present -- this file may be legacy/optional.)"
             findings.append(Finding(
                 id=f"SC-HF-FILE-{ext[1:].upper()}-{fn[:20].upper().replace('/','-')}",
                 title=f"Dangerous file in model repo: '{fn}' [{ftype}]",
@@ -463,7 +463,7 @@ def _scan_hf_model(repo_id: str) -> ScanResult:
             severity=Severity.INFO, confidence=ConfidenceLevel.HIGH,
             scanner="supply_chain_v2",
             explanation="No licence is declared. Using this model in production may create legal risk.",
-            impact="Legal/compliance risk — no clear usage rights.",
+            impact="Legal/compliance risk -- no clear usage rights.",
             remediation="Check with the author for licence terms before production deployment.",
             evidence=[Evidence("hf_metadata", "cardData.license", None, "No licence field in model card")],
             mitre_atlas=[],
@@ -480,7 +480,7 @@ def _scan_hf_model(repo_id: str) -> ScanResult:
     )
 
 
-# ── HuggingFace Dataset Scanner ───────────────────────────────────────────────
+# -- HuggingFace Dataset Scanner -----------------------------------------------
 
 def _scan_hf_dataset(repo_id: str) -> ScanResult:
     """
@@ -547,7 +547,7 @@ def _scan_hf_dataset(repo_id: str) -> ScanResult:
                     tags=["supply-chain", "dataset-poisoning", "hf"],
                 ))
     else:
-        # Couldn't fetch sample — report as informational gap
+        # Couldn't fetch sample -- report as informational gap
         findings.append(Finding(
             id=f"SC-DS-NO-SAMPLE-{repo_id[:15].upper().replace('/','_')}",
             title=f"Dataset content not accessible for scanning: '{repo_id}'",
@@ -590,7 +590,7 @@ def _scan_hf_dataset(repo_id: str) -> ScanResult:
     )
 
 
-# ── Main entry point ──────────────────────────────────────────────────────────
+# -- Main entry point ----------------------------------------------------------
 
 def scan_supply_chain(target: str) -> ScanResult:
     """

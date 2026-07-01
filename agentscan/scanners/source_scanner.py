@@ -2,23 +2,23 @@
 """
 Source Code Scanner
 =====================
-Real enterprises don't have YAML configs describing their agents — they have
+Real enterprises don't have YAML configs describing their agents -- they have
 Python source code with framework-specific tool definitions. This scanner
 parses that source directly via AST, with zero execution of the code.
 
 Supported patterns (auto-detected):
-  LangChain  — @tool decorator, Tool(name=..., func=...), BaseTool subclasses
-  CrewAI     — BaseTool subclasses, @tool decorator
-  AutoGen    — @register_function, function passed to register_function()
-  OpenAI SDK — @function_tool decorator
-  Amazon Nova Act — @tool decorator (same convention as LangChain/CrewAI)
-  Custom / no framework — raw Anthropic or OpenAI native tool schemas:
+  LangChain  -- @tool decorator, Tool(name=..., func=...), BaseTool subclasses
+  CrewAI     -- BaseTool subclasses, @tool decorator
+  AutoGen    -- @register_function, function passed to register_function()
+  OpenAI SDK -- @function_tool decorator
+  Amazon Nova Act -- @tool decorator (same convention as LangChain/CrewAI)
+  Custom / no framework -- raw Anthropic or OpenAI native tool schemas:
                           TOOLS = [{"name": ..., "description": ..., "input_schema": {...}}]
                           This is the format companies use when they build their own
                           orchestration layer directly on the model provider's API,
                           which is common at larger enterprises that haven't adopted
                           a third-party agent framework.
-  Generic    — any function with a docstring passed into a tools=[...] list
+  Generic    -- any function with a docstring passed into a tools=[...] list
 
 This produces the exact same internal capability model as agent_scanner.py,
 so every downstream feature (attack graph, escalation, compliance mapping)
@@ -49,8 +49,8 @@ class ExtractedTool:
 
 # Decorator / call patterns that mark a function as an agent tool
 TOOL_DECORATOR_NAMES = {
-    "tool": "langchain_crewai_nova_act_or_pydantic_ai",  # @tool / @agent.tool — LangChain, CrewAI, Nova Act, PydanticAI all use this name
-    "tool_plain": "pydantic_ai",             # @agent.tool_plain (PydanticAI — synchronous tools without RunContext)
+    "tool": "langchain_crewai_nova_act_or_pydantic_ai",  # @tool / @agent.tool -- LangChain, CrewAI, Nova Act, PydanticAI all use this name
+    "tool_plain": "pydantic_ai",             # @agent.tool_plain (PydanticAI -- synchronous tools without RunContext)
     "function_tool": "openai_agents",       # @function_tool (OpenAI Agents SDK)
     "kernel_function": "semantic_kernel",   # @sk.kernel_function (Semantic Kernel)
 }
@@ -58,7 +58,7 @@ TOOL_DECORATOR_NAMES = {
 # Function calls that register a tool (not decorator-based)
 TOOL_REGISTRATION_CALLS = {
     "register_function": "autogen",
-    "Tool": "langchain_or_haystack",   # Tool(name=..., func=...) — LangChain and Haystack both use this
+    "Tool": "langchain_or_haystack",   # Tool(name=..., func=...) -- LangChain and Haystack both use this
     "StructuredTool": "langchain",
 }
 
@@ -161,7 +161,7 @@ class ToolExtractor(ast.NodeVisitor):
             description = _get_string_kwarg(node, "description") or ""
 
             # register_function(func, ..., name=..., description=...)
-            # The description kwarg is often a vague LLM-facing summary —
+            # The description kwarg is often a vague LLM-facing summary --
             # the function's own docstring usually contains the real behaviour detail.
             real_docstring = ""
             if call_name == "register_function" and node.args:
@@ -221,7 +221,7 @@ class ToolExtractor(ast.NodeVisitor):
 
     def visit_Assign(self, node: ast.Assign) -> None:
         """
-        Detect raw Anthropic/OpenAI-native tool schemas — the pattern used by
+        Detect raw Anthropic/OpenAI-native tool schemas -- the pattern used by
         companies running a custom in-house agent with no named framework:
 
             TOOLS = [
@@ -231,7 +231,7 @@ class ToolExtractor(ast.NodeVisitor):
 
         This is the single most common pattern for in-house orchestration
         layers, since it's literally the wire format both Anthropic's and
-        OpenAI's APIs expect — no SDK wrapper required.
+        OpenAI's APIs expect -- no SDK wrapper required.
         """
         if not isinstance(node.value, ast.List):
             self.generic_visit(node)
@@ -275,7 +275,7 @@ class ToolExtractor(ast.NodeVisitor):
             if isinstance(val_node, ast.Constant):
                 result[key] = val_node.value
             elif isinstance(val_node, (ast.Dict, ast.List)):
-                # Nested structures (e.g. input_schema) — just mark presence, don't recurse
+                # Nested structures (e.g. input_schema) -- just mark presence, don't recurse
                 result[key] = {}
             else:
                 result[key] = None
@@ -320,7 +320,7 @@ def scan_source(target: str) -> ScanResult:
     Scan a real codebase (file or directory) for agent tool definitions,
     then run the same capability/attack-path analysis as agent_scanner.py.
 
-    This is the entry point for real enterprise architectures —
+    This is the entry point for real enterprise architectures --
     no YAML required.
     """
     import time
@@ -349,7 +349,7 @@ def scan_source(target: str) -> ScanResult:
                     "(@tool, @function_tool, register_function, BaseTool subclasses) but found none. "
                     "This may mean the agent has no tools, or uses a pattern not yet supported."
                 ),
-                impact="None — informational only",
+                impact="None -- informational only",
                 remediation="If this codebase does define agent tools, file an issue with the pattern used "
                             "so AgentScan can add support for it.",
             )],
@@ -380,7 +380,7 @@ def scan_source(target: str) -> ScanResult:
                 scanner="source_scanner",
                 explanation=(
                     f"Found via {tool.decorator_used} in {tool.framework_hint} code. "
-                    f"{cap_info['description']}. Detected from function/docstring analysis — "
+                    f"{cap_info['description']}. Detected from function/docstring analysis -- "
                     "verify this matches the tool's actual runtime behaviour."
                 ),
                 impact=cap_info["impact"],

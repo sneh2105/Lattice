@@ -20,7 +20,7 @@ Three detection mechanisms:
 2. REASONING CHAIN CONSISTENCY
    If the agent exposes intermediate reasoning (chain-of-thought, ReAct
    "Thought:" steps), check whether each step logically follows from the
-   previous one and from the stated goal — flagging non-sequiturs that
+   previous one and from the stated goal -- flagging non-sequiturs that
    often indicate injected reasoning.
 
 3. CAPABILITY-GOAL MISMATCH
@@ -39,7 +39,7 @@ from agentscan.runtime.events import AgentSession, RuntimeEvent, EventType
 from agentscan.models import Finding, Evidence, Severity, ConfidenceLevel
 
 
-# Goal category → expected tool categories (used for capability-goal mismatch detection)
+# Goal category -> expected tool categories (used for capability-goal mismatch detection)
 GOAL_TOOL_EXPECTATIONS: dict[str, set[str]] = {
     "search":      {"search", "lookup", "query", "find", "retrieve", "knowledge"},
     "summarise":   {"read", "fetch", "get", "retrieve"},
@@ -154,7 +154,7 @@ def _check_capability_goal_mismatch(
                     f"The agent's declared goal was low-risk/informational "
                     f"('{goal.raw_text[:80]}...'), but it invoked tool '{tool_name}' "
                     f"which matches escalatory capability keywords: {matched_escalatory}. "
-                    "This is a structural mismatch between stated intent and actual action — "
+                    "This is a structural mismatch between stated intent and actual action -- "
                     "a strong signal of goal hijacking even without an explicit injection string."
                 ),
                 severity=Severity.CRITICAL,
@@ -166,7 +166,7 @@ def _check_capability_goal_mismatch(
 
 def _check_reasoning_consistency(session: AgentSession, goal: GoalDeclaration | None) -> list[DriftEvent]:
     """
-    Check LLM response 'reasoning' content (if present) for non-sequiturs —
+    Check LLM response 'reasoning' content (if present) for non-sequiturs --
     sudden topic changes that don't follow from the conversation so far.
     """
     drift_events = []
@@ -215,7 +215,7 @@ def _check_scope_expansion(session: AgentSession) -> list[DriftEvent]:
         seen_tools.add(tool_name)
 
         # Flag if we're past the first 3 tool calls and STILL discovering new,
-        # unrelated tool categories — suggests goal creep
+        # unrelated tool categories -- suggests goal creep
         if is_new and i >= 3 and len(seen_tools) > 4:
             drift_events.append(DriftEvent(
                 event=event,
@@ -269,7 +269,7 @@ def analyse_goal_integrity(session: AgentSession) -> GoalIntegrityReport:
             scanner="goal_integrity",
             explanation=d.explanation,
             impact=(
-                "Agent behaviour has deviated from its declared goal — this is the behavioural "
+                "Agent behaviour has deviated from its declared goal -- this is the behavioural "
                 "signature of successful prompt injection, memory poisoning, or context manipulation, "
                 "even when no explicit injection pattern is present in the input text."
             ),

@@ -34,7 +34,7 @@ from agentscan.compliance.framework_mapper import map_findings_to_controls, DPDP
 from agentscan.compliance.dpia import generate_dpia
 
 
-# ── Colour palette ───────────────────────────────────────────────────────────
+# -- Colour palette -----------------------------------------------------------
 DARK = colors.HexColor("#1a1a2e")
 ACCENT = colors.HexColor("#16213e")
 BLUE = colors.HexColor("#0f3460")
@@ -104,7 +104,7 @@ def generate_audit_report(
         pagesize=A4,
         leftMargin=20*mm, rightMargin=20*mm,
         topMargin=20*mm, bottomMargin=20*mm,
-        title=f"AgentScan Compliance Audit Report — {agent_name}",
+        title=f"AgentScan Compliance Audit Report -- {agent_name}",
         author="AgentScan",
     )
 
@@ -115,7 +115,7 @@ def generate_audit_report(
     compliance_report = map_findings_to_controls(result)
     dpia = generate_dpia(result, agent_name=agent_name, assessor=assessor) if include_dpia else None
 
-    # ── COVER PAGE ───────────────────────────────────────────────────────────
+    # -- COVER PAGE -----------------------------------------------------------
     cover_table = Table([[
         Table([
             [Paragraph("AgentScan", S["cover_title"])],
@@ -127,7 +127,7 @@ def generate_audit_report(
             [Paragraph(f"<b>Assessor:</b> {assessor}", S["cover_sub"])],
             [Spacer(1, 8*mm)],
             [Paragraph("Frameworks covered", S["cover_sub"])],
-            [Paragraph("RBI AI-ACT&RS  ·  RBI MRM 2026  ·  DPDP Act 2023  ·  SEBI CSCRF  ·  ISO 42001  ·  EU AI Act  ·  NIST AI RMF  ·  SOC 2",
+            [Paragraph("RBI AI-ACT&RS  -  RBI MRM 2026  -  DPDP Act 2023  -  SEBI CSCRF  -  ISO 42001  -  EU AI Act  -  NIST AI RMF  -  SOC 2",
                        ParagraphStyle("fw", fontSize=9, textColor=colors.HexColor("#74b9ff"), leading=14))],
         ], colWidths=[W])
     ]], colWidths=[W])
@@ -140,7 +140,7 @@ def generate_audit_report(
     story.append(cover_table)
     story.append(PageBreak())
 
-    # ── EXECUTIVE SUMMARY ────────────────────────────────────────────────────
+    # -- EXECUTIVE SUMMARY ----------------------------------------------------
     story.append(Paragraph("Executive Summary", S["section_head"]))
     story.append(HRFlowable(width=W, thickness=1, color=BLUE, spaceAfter=6))
 
@@ -190,12 +190,12 @@ def generate_audit_report(
             story.append(Paragraph(f"{i}. {gap}", S["body"]))
     story.append(Spacer(1, 4*mm))
 
-    # ── ATTACK PATHS ────────────────────────────────────────────────────────
+    # -- ATTACK PATHS --------------------------------------------------------
     if result.attack_paths:
         story.append(Paragraph("Critical Attack Paths", S["section_head"]))
         story.append(HRFlowable(width=W, thickness=1, color=RED_DARK, spaceAfter=6))
         story.append(Paragraph(
-            "The following attack paths represent complete exploit chains — sequences of capabilities "
+            "The following attack paths represent complete exploit chains -- sequences of capabilities "
             "that together allow an attacker to cause significant harm. These must be resolved before "
             "any compliance claim is valid.",
             S["body"]
@@ -212,7 +212,7 @@ def generate_audit_report(
                 [Paragraph("MITRE ATLAS", S["label"]),
                  Paragraph(", ".join(path.mitre_atlas), S["body"])],
                 [Paragraph("Chain", S["label"]),
-                 Paragraph(" → ".join([s.title[:50] for s in path.steps[:4]]), S["small"])],
+                 Paragraph(" -> ".join([s.title[:50] for s in path.steps[:4]]), S["small"])],
             ]
             path_table = Table(path_data, colWidths=[30*mm, W - 30*mm])
             path_table.setStyle(TableStyle([
@@ -226,7 +226,7 @@ def generate_audit_report(
             story.append(path_table)
             story.append(Spacer(1, 3*mm))
 
-    # ── FINDINGS TABLE ───────────────────────────────────────────────────────
+    # -- FINDINGS TABLE -------------------------------------------------------
     story.append(PageBreak())
     story.append(Paragraph("Security Findings", S["section_head"]))
     story.append(HRFlowable(width=W, thickness=1, color=BLUE, spaceAfter=6))
@@ -257,10 +257,10 @@ def generate_audit_report(
 
     if not sorted_findings:
         findings_rows.append([
-            Paragraph("—", S["small"]),
+            Paragraph("--", S["small"]),
             Paragraph("No reportable findings", S["body"]),
-            Paragraph("—", S["small"]),
-            Paragraph("—", S["small"]),
+            Paragraph("--", S["small"]),
+            Paragraph("--", S["small"]),
         ])
 
     findings_table = Table(findings_rows, colWidths=[22*mm, 48*mm, 50*mm, 50*mm])
@@ -273,7 +273,7 @@ def generate_audit_report(
     ]))
     story.append(findings_table)
 
-    # ── COMPLIANCE CONTROL MAPPING ───────────────────────────────────────────
+    # -- COMPLIANCE CONTROL MAPPING -------------------------------------------
     story.append(PageBreak())
     story.append(Paragraph("Compliance Control Mapping", S["section_head"]))
     story.append(HRFlowable(width=W, thickness=1, color=BLUE, spaceAfter=6))
@@ -302,7 +302,7 @@ def generate_audit_report(
             ])
 
     if len(ctrl_rows) == 1:
-        ctrl_rows.append([Paragraph("—", S["small"])] * 5)
+        ctrl_rows.append([Paragraph("--", S["small"])] * 5)
 
     ctrl_table = Table(ctrl_rows, colWidths=[30*mm, 22*mm, 35*mm, 40*mm, 43*mm])
     ctrl_table.setStyle(TableStyle([
@@ -315,9 +315,9 @@ def generate_audit_report(
     ]))
     story.append(ctrl_table)
 
-    # ── DPDP GAPS ────────────────────────────────────────────────────────────
+    # -- DPDP GAPS ------------------------------------------------------------
     story.append(Spacer(1, 6*mm))
-    story.append(Paragraph("DPDP Act — Items Requiring Manual Review", S["section_head"]))
+    story.append(Paragraph("DPDP Act -- Items Requiring Manual Review", S["section_head"]))
     story.append(HRFlowable(width=W, thickness=1, color=TEAL, spaceAfter=6))
     story.append(Paragraph(
         "AgentScan covers security safeguards. The following DPDP obligations require "
@@ -328,7 +328,7 @@ def generate_audit_report(
 
     for gap in DPDP_STATIC_GAPS:
         gap_data = [
-            [Paragraph(f"⚠ {gap['gap']}", ParagraphStyle("gg", fontSize=9, textColor=ORANGE,
+            [Paragraph(f"[!] {gap['gap']}", ParagraphStyle("gg", fontSize=9, textColor=ORANGE,
                                                            fontName="Helvetica-Bold", leading=13)),
              Paragraph(f"Control: {gap['control']}  |  Deadline: {gap['deadline']}",
                        S["small"])],
@@ -345,13 +345,13 @@ def generate_audit_report(
         story.append(gap_table)
         story.append(Spacer(1, 2*mm))
 
-    # ── DPIA SUMMARY ─────────────────────────────────────────────────────────
+    # -- DPIA SUMMARY ---------------------------------------------------------
     if dpia:
         story.append(PageBreak())
         story.append(Paragraph("Data Protection Impact Assessment (DPIA)", S["section_head"]))
         story.append(HRFlowable(width=W, thickness=1, color=TEAL, spaceAfter=6))
         story.append(Paragraph(
-            f"Required by: DPDP Act 2023 (Significant Data Fiduciaries)  ·  ISO 42001 Clause 8.7  ·  EU AI Act Article 9",
+            f"Required by: DPDP Act 2023 (Significant Data Fiduciaries)  -  ISO 42001 Clause 8.7  -  EU AI Act Article 9",
             S["small"]
         ))
         story.append(Spacer(1, 3*mm))
@@ -386,7 +386,7 @@ def generate_audit_report(
             status_label = {"adequate": "ADEQUATE", "gap": "GAP IDENTIFIED",
                             "not-assessed": "NOT ASSESSED"}.get(section.status, section.status.upper())
             story.append(Paragraph(
-                f'{section.title} — <font color="{"#2d6a2d" if section.status == "adequate" else "#c47a1e"}">{status_label}</font>',
+                f'{section.title} -- <font color="{"#2d6a2d" if section.status == "adequate" else "#c47a1e"}">{status_label}</font>',
                 S["bold"]
             ))
             story.append(Paragraph(section.content.replace("\n", "<br/>"), S["body"]))
@@ -395,10 +395,10 @@ def generate_audit_report(
         if dpia.open_gaps:
             story.append(Paragraph("Open gaps requiring manual review:", S["bold"]))
             for gap in dpia.open_gaps:
-                story.append(Paragraph(f"• {gap}", S["body"]))
+                story.append(Paragraph(f"* {gap}", S["body"]))
             story.append(Spacer(1, 3*mm))
 
-    # ── SIGN-OFF ─────────────────────────────────────────────────────────────
+    # -- SIGN-OFF -------------------------------------------------------------
     story.append(PageBreak())
     story.append(Paragraph("Sign-Off and Attestation", S["section_head"]))
     story.append(HRFlowable(width=W, thickness=1, color=BLUE, spaceAfter=6))
@@ -430,8 +430,8 @@ def generate_audit_report(
     story.append(signoff_table)
     story.append(Spacer(1, 4*mm))
     story.append(Paragraph(
-        f"Generated by AgentScan v0.1.0  ·  {date.today().isoformat()}  ·  "
-        "github.com/sneh2105/agentscan  ·  Apache 2.0",
+        f"Generated by AgentScan v0.1.0  -  {date.today().isoformat()}  -  "
+        "github.com/sneh2105/agentscan  -  Apache 2.0",
         ParagraphStyle("footer", fontSize=7, textColor=MID_GREY, alignment=TA_CENTER)
     ))
 

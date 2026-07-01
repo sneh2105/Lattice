@@ -15,7 +15,7 @@ from agentscan.runtime.integrations import AgentScanAutoGenHook
 from agentscan.runtime.integrations.monitor import AgentScanMonitor, MonitorConfig
 
 
-# ── AutoGen integration ────────────────────────────────────────────────────────
+# -- AutoGen integration --------------------------------------------------------
 
 def build_monitored_autogen_system(user_message: str):
     """
@@ -107,7 +107,7 @@ def run_monitored_conversation(user_message: str) -> str:
     report = hook.flush()
 
     print(f"\n{'='*60}")
-    print("AgentScan — AutoGen Security Report")
+    print("AgentScan -- AutoGen Security Report")
     print(f"{'='*60}")
     print(f"Events   : {report.event_count}")
     print(f"Critical : {sum(1 for f in report.findings if f.severity.value == 'CRITICAL')}")
@@ -117,7 +117,7 @@ def run_monitored_conversation(user_message: str) -> str:
     return f"Completed with {report.event_count} monitored events"
 
 
-# ── Direct monitor API (framework-agnostic) ────────────────────────────────────
+# -- Direct monitor API (framework-agnostic) ------------------------------------
 
 def demo_direct_monitoring():
     """

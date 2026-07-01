@@ -5,9 +5,9 @@ AgentScan Runtime Monitor
 The core monitoring class. All framework integrations wrap this.
 
 Three ways to use it:
-  1. Direct API  — call log_* methods explicitly
-  2. Context manager (agentscan_trace) — wraps a block of agent code
-  3. Framework callbacks — auto-wired via framework-specific classes
+  1. Direct API  -- call log_* methods explicitly
+  2. Context manager (agentscan_trace) -- wraps a block of agent code
+  3. Framework callbacks -- auto-wired via framework-specific classes
 
 Output options:
   - Console alerts (immediate, for development)
@@ -107,7 +107,7 @@ class AgentScanMonitor:
         if config.jsonl_path:
             self._jsonl_handle = open(config.jsonl_path, "a", encoding="utf-8")
 
-    # ── Logging API ───────────────────────────────────────────────────────────
+    # -- Logging API -----------------------------------------------------------
 
     def log_llm_request(self, model: str, messages: list[dict], **kwargs) -> RuntimeEvent:
         return self._log(llm_request(model, messages, **kwargs))
@@ -139,7 +139,7 @@ class AgentScanMonitor:
     def log_db_query(self, query: str, table: str = "", **kwargs) -> RuntimeEvent:
         return self._log(db_query(query, table, **kwargs))
 
-    # ── Internal ──────────────────────────────────────────────────────────────
+    # -- Internal --------------------------------------------------------------
 
     def _log(self, event: RuntimeEvent) -> RuntimeEvent:
         with self._lock:
@@ -158,7 +158,7 @@ class AgentScanMonitor:
             self._jsonl_handle.write(line + "\n")
             self._jsonl_handle.flush()
 
-        # Stream analysis (fast path — check single event for critical signals)
+        # Stream analysis (fast path -- check single event for critical signals)
         if self.config.stream_analysis:
             self._stream_check(event)
 

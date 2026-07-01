@@ -243,7 +243,7 @@ def _extract_tools(config: dict) -> list[dict]:
     """
     Normalise tool lists from various agent config formats:
     - LangChain / AutoGen / CrewAI / OpenAI Assistants / custom
-    - Dify DSL exports (model_config.agent_mode.tools — no-code platform)
+    - Dify DSL exports (model_config.agent_mode.tools -- no-code platform)
     - Generic nested no-code platform exports (recursive fallback)
     """
     # Common top-level keys
@@ -402,7 +402,7 @@ def scan_agent_config(path: str | Path) -> ScanResult:
             explanation="AgentScan could not find a tool list in this config. "
                         "This may mean the agent uses a format not yet supported, "
                         "or the agent has no tools (e.g. pure chat).",
-            impact="None — informational only",
+            impact="None -- informational only",
             remediation="Check that your config uses a supported key: 'tools', 'tool_list', 'capabilities', 'plugins', or 'functions'.",
         ))
 

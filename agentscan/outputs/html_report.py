@@ -4,7 +4,7 @@ Static HTML Dashboard Report
 ==============================
 A single self-contained HTML file with no backend, no server, no database.
 Opens directly in any browser. This is the artifact you hand to someone
-after running AgentScan against their config — a polished report instead
+after running AgentScan against their config -- a polished report instead
 of a wall of terminal text or a raw JSON blob.
 
 Includes: risk score gauge, severity breakdown chart, attack paths,
@@ -69,7 +69,7 @@ def generate_html_report(
     # Build findings cards HTML
     findings_html = ""
     if not sorted_findings:
-        findings_html = '<div class="empty-state">No reportable findings — this configuration looks well-scoped.</div>'
+        findings_html = '<div class="empty-state">No reportable findings -- this configuration looks well-scoped.</div>'
     else:
         for f in sorted_findings:
             colour = SEVERITY_COLOURS.get(f.severity.value, "#5F5E5A")
@@ -127,7 +127,7 @@ def generate_html_report(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AgentScan Report — {_esc(display_title)}</title>
+<title>AgentScan Report -- {_esc(display_title)}</title>
 <style>
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   body {{

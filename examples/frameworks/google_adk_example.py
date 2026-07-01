@@ -149,7 +149,7 @@ def run_google_adk_agent(user_input: str) -> str:
     return output
 
 
-# ── Demo without API key ──────────────────────────────────────────────────────
+# -- Demo without API key ------------------------------------------------------
 
 def demo_without_api_key():
     """Simulate ADK agent events for demo/testing."""

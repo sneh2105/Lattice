@@ -3,18 +3,18 @@
 Capability Escalation Analysis
 ================================
 Measures how individually-harmless capabilities combine into dangerous
-exploit chains — the AI-agent equivalent of privilege escalation analysis
+exploit chains -- the AI-agent equivalent of privilege escalation analysis
 in cloud IAM security (e.g. how Wiz/Orca find IAM privilege escalation paths).
 
 Core idea: a single capability (e.g. "read files") is low risk.
 But CHAINS of capabilities create escalation:
 
-  read_files (low) → can read SSH keys
-    → ssh_exec (medium) → can connect to other hosts
-      → cloud_api (high) → can assume IAM roles
-        → admin access (critical)
+  read_files (low) -> can read SSH keys
+    -> ssh_exec (medium) -> can connect to other hosts
+      -> cloud_api (high) -> can assume IAM roles
+        -> admin access (critical)
 
-This produces an "escalation score" per capability — not just its
+This produces an "escalation score" per capability -- not just its
 standalone risk, but how much risk it ADDS when combined with what's
 already present in the agent's capability set.
 """
@@ -26,7 +26,7 @@ from itertools import combinations
 from agentscan.models import Finding, Evidence, Severity, ConfidenceLevel
 
 
-# Escalation rules: (capability_set_required) → (resulting_escalated_capability, explanation)
+# Escalation rules: (capability_set_required) -> (resulting_escalated_capability, explanation)
 # Modelled after cloud IAM privilege escalation patterns (iam:PassRole, lambda:UpdateFunctionCode, etc.)
 ESCALATION_RULES: list[dict] = [
     {
@@ -49,7 +49,7 @@ ESCALATION_RULES: list[dict] = [
         "title": "Secret access + network escalates to cloud control plane access",
         "explanation": (
             "An agent with secret access and network egress can retrieve cloud credentials "
-            "and then use them directly via the cloud provider's HTTP API — achieving full "
+            "and then use them directly via the cloud provider's HTTP API -- achieving full "
             "cloud_api capability without ever being granted a 'cloud_api' tool."
         ),
         "severity": Severity.CRITICAL,
@@ -61,7 +61,7 @@ ESCALATION_RULES: list[dict] = [
         "escalates_to": "*",  # shell access escalates to everything
         "title": "Shell execution escalates to unrestricted system access",
         "explanation": (
-            "Shell execution is a universal escalation primitive — from a shell, an agent can "
+            "Shell execution is a universal escalation primitive -- from a shell, an agent can "
             "read any file, access any credential, make any network call, and install persistence. "
             "Any other declared capability becomes redundant once shell_exec is present; "
             "shell_exec should be treated as equivalent to root access."
@@ -76,7 +76,7 @@ ESCALATION_RULES: list[dict] = [
         "title": "Code execution escalates to shell execution",
         "explanation": (
             "Code interpreters (Python REPL, Jupyter, eval) can call os.system(), subprocess, "
-            "or equivalent — meaning code_execution capability is functionally equivalent to "
+            "or equivalent -- meaning code_execution capability is functionally equivalent to "
             "shell_exec even if the tool was scoped as 'just run Python'."
         ),
         "severity": Severity.CRITICAL,
@@ -102,7 +102,7 @@ ESCALATION_RULES: list[dict] = [
         "title": "Email send escalates to data exfiltration channel",
         "explanation": (
             "Email sending is a complete exfiltration channel even without explicit "
-            "network_egress capability — any data the agent can read can be emailed out."
+            "network_egress capability -- any data the agent can read can be emailed out."
         ),
         "severity": Severity.MEDIUM,
         "mitre": ["AML.T0040"],
@@ -114,7 +114,7 @@ ESCALATION_RULES: list[dict] = [
         "title": "Memory write + code execution escalates to persistent backdoor",
         "explanation": (
             "An agent that can write to its own persistent memory AND execute code can "
-            "implant instructions that survive across sessions — a persistence mechanism "
+            "implant instructions that survive across sessions -- a persistence mechanism "
             "equivalent to a backdoor, triggered automatically on every future invocation."
         ),
         "severity": Severity.CRITICAL,
@@ -127,7 +127,7 @@ ESCALATION_RULES: list[dict] = [
         "title": "Vector DB write escalates to persistent prompt injection",
         "explanation": (
             "An agent that can write to the vector store used for RAG can poison future "
-            "retrievals for itself or OTHER agents sharing the same vector store — "
+            "retrievals for itself or OTHER agents sharing the same vector store -- "
             "a multi-agent, multi-session injection vector."
         ),
         "severity": Severity.CRITICAL,
@@ -192,7 +192,7 @@ def analyse_capability_escalation(capabilities: list[str]) -> EscalationReport:
             if rule["requires"].issubset(effective):
                 target = rule["escalates_to"]
                 if target == "*":
-                    # Shell escalates to everything — special case
+                    # Shell escalates to everything -- special case
                     new_caps = set(BASE_RISK.keys()) - effective
                     if new_caps:
                         effective |= new_caps
@@ -233,7 +233,7 @@ def analyse_capability_escalation(capabilities: list[str]) -> EscalationReport:
             explanation=path.explanation,
             impact=(
                 f"Declared capabilities {sorted(path.required_caps)} effectively grant "
-                f"'{path.escalates_to}' capability — a risk increase of {path.risk_delta} points "
+                f"'{path.escalates_to}' capability -- a risk increase of {path.risk_delta} points "
                 f"that is NOT reflected in the agent's declared permission set."
             ),
             remediation=(
@@ -246,7 +246,7 @@ def analyse_capability_escalation(capabilities: list[str]) -> EscalationReport:
                 source="capability_escalation_rules",
                 field="required_capabilities",
                 observed_value=sorted(path.required_caps),
-                explanation=f"Rule {path.rule_id}: {sorted(path.required_caps)} → {path.escalates_to}",
+                explanation=f"Rule {path.rule_id}: {sorted(path.required_caps)} -> {path.escalates_to}",
             )],
             mitre_atlas=path.mitre_atlas,
             tags=["capability-escalation", path.rule_id.lower()],
@@ -263,7 +263,7 @@ def analyse_capability_escalation(capabilities: list[str]) -> EscalationReport:
             explanation=(
                 f"Based on declared capabilities alone, this agent scores {declared_risk}/100 risk. "
                 f"But {len(escalation_paths)} escalation path(s) mean the EFFECTIVE risk is "
-                f"{effective_risk}/100 — a {escalation_factor}x increase. This gap is exactly "
+                f"{effective_risk}/100 -- a {escalation_factor}x increase. This gap is exactly "
                 "where security reviews based on declared permissions alone go wrong."
             ),
             impact="Security review based on declared capabilities significantly underestimates true risk.",

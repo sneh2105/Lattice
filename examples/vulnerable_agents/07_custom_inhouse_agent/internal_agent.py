@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Custom in-house agent framework — internal-tools.py
+Custom in-house agent framework -- internal-tools.py
 This company built their own orchestration layer directly on the
 Anthropic/OpenAI tool-use API. No LangChain, no CrewAI, no named SDK.
 This is genuinely common at larger enterprises with security/compliance

@@ -53,7 +53,7 @@ def cmd_runtime_analyse(args):
 
 def _render_runtime(report, args):
     from agentscan.runtime.analyser import RuntimeAnalysisReport
-    print(f"\n  {_col(BOLD+CYAN, 'Runtime Analysis')} — session {report.session_id}\n")
+    print(f"\n  {_col(BOLD+CYAN, 'Runtime Analysis')} -- session {report.session_id}\n")
     print(f"  Agent: {report.agent_id}")
     print(f"  Events: {report.event_count}  Duration: {report.duration_ms}ms")
     print(f"  Critical findings: {_col(RED, str(sum(1 for f in report.findings if f.severity==Severity.CRITICAL)))}")
@@ -96,7 +96,7 @@ def _render_runtime(report, args):
 
 
 def cmd_prompt_flow(args):
-    """Analyse prompt data flow — static or from session."""
+    """Analyse prompt data flow -- static or from session."""
     from agentscan.runtime.prompt_flow import PromptFlowAnalyser
 
     analyser = PromptFlowAnalyser()
@@ -136,14 +136,14 @@ def _render_prompt_flow(report):
     print(f"\n  {_col(BOLD+CYAN, 'Prompt Flow Analysis')}\n")
     print(f"  {report.summary}\n")
 
-    RISK_ICONS = {"critical": _col(RED,"●"), "high": _col(ORANGE,"●"),
-                  "medium": _col(YELLOW,"●"), "low": _col(GREEN,"●"), "safe": _col(DIM,"○")}
+    RISK_ICONS = {"critical": _col(RED,"*"), "high": _col(ORANGE,"*"),
+                  "medium": _col(YELLOW,"*"), "low": _col(GREEN,"*"), "safe": _col(DIM,"o")}
 
     print(_col(BOLD, "  Flow stages:"))
     for node in report.nodes:
-        icon = RISK_ICONS.get(node.risk_level, "○")
-        tainted = _col(RED, " ← TAINTED") if node.id in report.injection_reach else ""
-        secret = _col(RED, " ← SECRETS") if node.id in report.secret_exposure else ""
+        icon = RISK_ICONS.get(node.risk_level, "o")
+        tainted = _col(RED, " ? TAINTED") if node.id in report.injection_reach else ""
+        secret = _col(RED, " ? SECRETS") if node.id in report.secret_exposure else ""
         print(f"  {icon} {_col(BOLD, node.label)}{tainted}{secret}")
         for fn in node.findings[:2]:
             print(f"      {_col(DIM, fn)}")
@@ -188,13 +188,13 @@ def _render_identity(ig):
     from agentscan.identity.agent_identity import AgentIdentityGraph
     rc = _risk_col(ig.risk_score)
 
-    print(f"\n  {_col(BOLD+CYAN, 'Agent Identity Graph')} — {ig.agent_name}\n")
+    print(f"\n  {_col(BOLD+CYAN, 'Agent Identity Graph')} -- {ig.agent_name}\n")
     risk_bar = "#" * int(ig.risk_score/5) + "." * (20 - int(ig.risk_score/5))
     print(f"  Risk score  {_col(rc, f'{ig.risk_score:3d}/100')}  {_col(rc, risk_bar)}\n")
 
     # Yes/No answer panel
     print(_col(BOLD, "  What can this agent actually access?"))
-    print(_col(DIM, "  " + "─"*55))
+    print(_col(DIM, "  " + "-"*55))
     checks = [
         ("Can access internet",          ig.can_access_internet),
         ("Can access secrets/credentials", ig.can_access_secrets),
@@ -219,7 +219,7 @@ def _render_identity(ig):
     if ig.effective_permissions:
         print(_col(BOLD, "  Effective permissions:"))
         for perm in ig.effective_permissions:
-            print(f"    {_col(ORANGE, '•')} {perm}")
+            print(f"    {_col(ORANGE, '*')} {perm}")
         print()
 
     # Node inventory
@@ -261,7 +261,7 @@ def add_runtime_parser(subparsers):
     ra.add_argument("--output-file", help="Write JSON report")
 
     # runtime flow
-    rf = rt_sub.add_parser("flow", help="Prompt flow analysis — trace data through agent stages")
+    rf = rt_sub.add_parser("flow", help="Prompt flow analysis -- trace data through agent stages")
     rf.add_argument("--session-file", help="Runtime session JSON for dynamic analysis")
     rf.add_argument("--system-prompt", help="System prompt text for static analysis")
     rf.add_argument("--tools", help="Comma-separated tool names for static analysis")
@@ -269,7 +269,7 @@ def add_runtime_parser(subparsers):
     rf.add_argument("--has-memory", action="store_true")
 
     # runtime identity
-    ri = rt_sub.add_parser("identity", help="Agent identity graph — what can this agent actually access?")
+    ri = rt_sub.add_parser("identity", help="Agent identity graph -- what can this agent actually access?")
     ri.add_argument("--config", help="Agent config file")
 
     # runtime goals
@@ -280,7 +280,7 @@ def add_runtime_parser(subparsers):
 
 
 def cmd_goal_integrity(args):
-    """agentscan runtime goals <session_file> — reasoning and goal integrity analysis."""
+    """agentscan runtime goals <session_file> -- reasoning and goal integrity analysis."""
     from agentscan.runtime.events import AgentSession, RuntimeEvent, EventType
     from agentscan.runtime.goal_integrity import analyse_goal_integrity
 
@@ -307,7 +307,7 @@ def cmd_goal_integrity(args):
     report = analyse_goal_integrity(session)
 
     sc = RED if report.integrity_score < 50 else ORANGE if report.integrity_score < 80 else GREEN
-    print(f"\n  {_col(BOLD+CYAN, 'Reasoning & Goal Integrity Analysis')} — session {session.session_id}\n")
+    print(f"\n  {_col(BOLD+CYAN, 'Reasoning & Goal Integrity Analysis')} -- session {session.session_id}\n")
 
     if report.declared_goal:
         print(f"  Declared goal ({report.declared_goal.source}):")

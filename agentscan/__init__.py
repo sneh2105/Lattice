@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-AgentScan — Security scanner for AI agents, MCP servers, and AI supply chain artifacts.
+AgentScan -- Security scanner for AI agents, MCP servers, and AI supply chain artifacts.
 """
 
 __version__ = "0.1.0"

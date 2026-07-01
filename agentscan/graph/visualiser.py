@@ -37,38 +37,38 @@ NODE_COLOURS = {
 }
 
 NODE_ICONS = {
-    NodeType.ENTRY_POINT:  "⚡",
-    NodeType.TOOL:         "🔧",
-    NodeType.RESOURCE:     "🗄",
-    NodeType.NETWORK:      "🌐",
-    NodeType.AGENT:        "🤖",
-    NodeType.MCP_SERVER:   "🔌",
-    NodeType.PROCESS:      "💻",
-    NodeType.CROWN_JEWEL:  "👑",
+    NodeType.ENTRY_POINT:  "*",
+    NodeType.TOOL:         "?",
+    NodeType.RESOURCE:     "?",
+    NodeType.NETWORK:      "?",
+    NodeType.AGENT:        "?",
+    NodeType.MCP_SERVER:   "?",
+    NodeType.PROCESS:      "?",
+    NodeType.CROWN_JEWEL:  "?",
 }
 
 EDGE_SYMBOLS = {
-    EdgeType.EXECUTES:    "──exec──▶",
-    EdgeType.READS:       "──read──▶",
-    EdgeType.WRITES:      "──write─▶",
-    EdgeType.CALLS:       "──call──▶",
-    EdgeType.EXFILTRATES: "══EXFIL═▶",
-    EdgeType.ESCALATES:   "══ESCA══▶",
-    EdgeType.INJECTS:     "──inject▶",
-    EdgeType.DEPENDS_ON:  "──dep───▶",
-    EdgeType.TRUSTS:      "──trust─▶",
+    EdgeType.EXECUTES:    "--exec--?",
+    EdgeType.READS:       "--read--?",
+    EdgeType.WRITES:      "--write-?",
+    EdgeType.CALLS:       "--call--?",
+    EdgeType.EXFILTRATES: "==EXFIL=?",
+    EdgeType.ESCALATES:   "==ESCA==?",
+    EdgeType.INJECTS:     "--inject?",
+    EdgeType.DEPENDS_ON:  "--dep---?",
+    EdgeType.TRUSTS:      "--trust-?",
 }
 
 
 def render_terminal(graph: AttackGraph, paths: list[GraphPath]) -> str:
     lines = []
-    lines.append(f"\n  {BOLD}{CYAN}Attack Graph{RESET}  {DIM}({len(graph.nodes)} nodes · {len(graph.edges)} edges){RESET}\n")
+    lines.append(f"\n  {BOLD}{CYAN}Attack Graph{RESET}  {DIM}({len(graph.nodes)} nodes - {len(graph.edges)} edges){RESET}\n")
 
     if not paths:
-        lines.append(f"  {GREEN}✓ No attack paths found from attacker-controlled entry points.{RESET}\n")
+        lines.append(f"  {GREEN}[OK] No attack paths found from attacker-controlled entry points.{RESET}\n")
         return "\n".join(lines)
 
-    lines.append(f"  {RED}{BOLD}⚠ {len(paths)} attack path(s) found{RESET}\n")
+    lines.append(f"  {RED}{BOLD}[!] {len(paths)} attack path(s) found{RESET}\n")
 
     for i, path in enumerate(paths, 1):
         score_col = RED if path.composite_score >= 60 else ORANGE if path.composite_score >= 35 else YELLOW
@@ -81,20 +81,20 @@ def render_terminal(graph: AttackGraph, paths: list[GraphPath]) -> str:
         # Draw the chain
         for j, node in enumerate(path.nodes):
             col = NODE_COLOURS.get(node.type, "")
-            icon = NODE_ICONS.get(node.type, "•")
-            crown = f"  {RED}← CROWN JEWEL{RESET}" if node.is_crown_jewel else ""
-            attacker = f"  {RED}← ATTACKER ENTRY{RESET}" if node.attacker_controlled else ""
+            icon = NODE_ICONS.get(node.type, "*")
+            crown = f"  {RED}? CROWN JEWEL{RESET}" if node.is_crown_jewel else ""
+            attacker = f"  {RED}? ATTACKER ENTRY{RESET}" if node.attacker_controlled else ""
             lines.append(f"  {'  ' * j}{col}{icon} {node.label}{RESET}{crown}{attacker}")
 
             if j < len(path.edges):
                 edge = path.edges[j]
-                sym = EDGE_SYMBOLS.get(edge.type, "──────▶")
+                sym = EDGE_SYMBOLS.get(edge.type, "------?")
                 edge_col = RED if edge.type in (EdgeType.EXFILTRATES, EdgeType.ESCALATES, EdgeType.EXECUTES) else DIM
                 lines.append(f"  {'  ' * j}  {edge_col}{sym}{RESET}")
 
         if path.mitre_atlas:
             lines.append(f"\n  {DIM}MITRE ATLAS: {', '.join(path.mitre_atlas)}{RESET}")
-        lines.append(f"\n  {DIM}{'─' * 60}{RESET}\n")
+        lines.append(f"\n  {DIM}{'-' * 60}{RESET}\n")
 
     return "\n".join(lines)
 
@@ -188,9 +188,9 @@ svg {{ width: 100%; height: 100%; }}
 </head>
 <body>
 <div id="header">
-  <h1>🛡️ AgentScan — Attack Graph</h1>
+  <h1>?? AgentScan -- Attack Graph</h1>
   <span class="badge">{len(paths)} critical path(s)</span>
-  <span style="color:#8b949e;font-size:13px;margin-left:auto">{len(graph_data['nodes'])} nodes · {len(graph_data['edges'])} edges</span>
+  <span style="color:#8b949e;font-size:13px;margin-left:auto">{len(graph_data['nodes'])} nodes - {len(graph_data['edges'])} edges</span>
 </div>
 <div id="main">
   <div id="sidebar">
@@ -267,7 +267,7 @@ node.append('circle')
   .style('fill', d => nodeColors[d.type] || '#666')
   .style('stroke', d => d.is_crown_jewel ? '#f85149' : d.attacker_controlled ? '#f85149' : '#30363d');
 
-node.append('text').attr('dy', 24).text(d => d.label.length > 20 ? d.label.slice(0,18)+'…' : d.label);
+node.append('text').attr('dy', 24).text(d => d.label.length > 20 ? d.label.slice(0,18)+'...' : d.label);
 
 // Tooltip
 const tooltip = document.getElementById('tooltip');
@@ -277,8 +277,8 @@ node.on('mouseover', (e, d) => {{
   tooltip.style.top = (e.offsetY - 10) + 'px';
   tooltip.innerHTML = `<b style="color:#58a6ff">${{d.label}}</b><br>
     <span style="color:#8b949e">Type: ${{d.type}}</span><br>
-    ${{d.is_crown_jewel ? `<span style="color:#f85149">👑 Crown Jewel (value: ${{d.crown_jewel_value}})</span><br>` : ''}}
-    ${{d.attacker_controlled ? '<span style="color:#f85149">⚡ Attacker-controlled</span><br>' : ''}}
+    ${{d.is_crown_jewel ? `<span style="color:#f85149">? Crown Jewel (value: ${{d.crown_jewel_value}})</span><br>` : ''}}
+    ${{d.attacker_controlled ? '<span style="color:#f85149">* Attacker-controlled</span><br>' : ''}}
     ${{d.properties?.impact ? `Impact: ${{d.properties.impact}}` : ''}}`;
 }}).on('mouseout', () => {{ tooltip.style.opacity = '0'; }});
 
@@ -296,7 +296,7 @@ pathsData.forEach((p, i) => {{
   card.className = 'path-card';
   card.innerHTML = `<div class="path-title">${{p.title}}</div>
     <div class="path-score">Score: ${{p.score.toFixed(1)}}</div>
-    <div class="path-chain">${{p.nodes.join(' → ')}}</div>`;
+    <div class="path-chain">${{p.nodes.join(' -> ')}}</div>`;
   card.onclick = () => {{
     document.querySelectorAll('.path-card').forEach(c => c.classList.remove('active'));
     card.classList.add('active');

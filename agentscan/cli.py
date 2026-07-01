@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """AgentScan CLI v0.3.0"""
 from __future__ import annotations
-import agentscan._compat   # force UTF-8 stdout/stderr before any output — Windows fix
+import agentscan._compat   # force UTF-8 stdout/stderr before any output -- Windows fix
 import argparse, sys
 from pathlib import Path
 
@@ -46,7 +46,7 @@ Scan:         agentscan agent ./agent.yaml
 
 Attack graph: agentscan graph agent ./agent.yaml [--export-html graph.html]
               agentscan graph mcp   ./mcp.json
-              agentscan graph chain server1.json server2.json --calls "A→B"
+              agentscan graph chain server1.json server2.json --calls "A->B"
 
 Runtime:      agentscan runtime analyse  session.json
               agentscan runtime flow     --config agent.yaml --has-rag
@@ -59,7 +59,7 @@ Compliance:   agentscan compliance map   ./agent.yaml
     sub = parser.add_subparsers(dest="command", required=True)
 
     for name, help_text in [("agent","Scan agent config (YAML/JSON)"),
-                             ("source","Scan real agent source code — no config file needed"),
+                             ("source","Scan real agent source code -- no config file needed"),
                              ("mcp","Scan MCP server"),
                              ("supply","Scan AI supply chain")]:
         p = sub.add_parser(name, help=help_text)
@@ -75,7 +75,7 @@ Compliance:   agentscan compliance map   ./agent.yaml
     doctor_p = sub.add_parser("doctor", help="Check environment, detect frameworks and agent configs")
     doctor_p.add_argument("path", nargs="?", default=".", help="Path to scan (default: current directory)")
 
-    sub.add_parser("demo", help="Run AgentScan against bundled vulnerable agents — zero setup, no code of your own needed")
+    sub.add_parser("demo", help="Run AgentScan against bundled vulnerable agents -- zero setup, no code of your own needed")
     sub.add_parser("benchmark", help="Run the evaluation kit and report pass/fail against documented thresholds")
 
     add_compliance_parser(sub)

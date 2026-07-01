@@ -16,7 +16,7 @@ from crewai.tools import BaseTool
 from agentscan.runtime.integrations import AgentScanCrewCallback
 from agentscan.runtime.integrations.monitor import agentscan_trace
 
-# ── Example tools ──────────────────────────────────────────────────────────────
+# -- Example tools --------------------------------------------------------------
 
 class WebSearchTool(BaseTool):
     name: str = "web_search"
@@ -35,7 +35,7 @@ class ReportWriterTool(BaseTool):
         return f"Report written: {content[:100]}..."
 
 
-# ── Agents ─────────────────────────────────────────────────────────────────────
+# -- Agents ---------------------------------------------------------------------
 
 researcher = Agent(
     role="Senior Research Analyst",
@@ -53,7 +53,7 @@ writer = Agent(
     verbose=True,
 )
 
-# ── AgentScan integration ──────────────────────────────────────────────────────
+# -- AgentScan integration ------------------------------------------------------
 
 def run_with_monitoring(topic: str) -> str:
     """Run a CrewAI research crew with full AgentScan monitoring."""
@@ -108,7 +108,7 @@ def run_with_monitoring(topic: str) -> str:
     return str(result)
 
 
-# ── Option 2: context manager (cleaner for scripts) ────────────────────────────
+# -- Option 2: context manager (cleaner for scripts) ----------------------------
 
 def run_with_trace(topic: str) -> str:
     """Alternative: use agentscan_trace context manager."""

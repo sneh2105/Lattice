@@ -31,7 +31,7 @@ from agentscan.graph.nodes import Node, Edge, NodeType, EdgeType
 from agentscan.graph.engine import AttackGraph
 
 
-# ── Trust signals ────────────────────────────────────────────────────────────
+# -- Trust signals ------------------------------------------------------------
 
 # Known trusted MCP server publishers
 TRUSTED_PUBLISHERS = {
@@ -41,7 +41,7 @@ TRUSTED_PUBLISHERS = {
 
 # Known malicious or high-risk MCP server patterns
 KNOWN_RISKY_SERVERS: dict[str, str] = {
-    # populated from threat intel — placeholder
+    # populated from threat intel -- placeholder
 }
 
 # Tool capability taxonomy (extended from v1)
@@ -161,7 +161,7 @@ def _analyse_tool(tool: dict, server_id: str) -> MCPToolAnalysis:
         matched_kws = [kw for kw in cap["keywords"] if kw in haystack]
         findings.append(Finding(
             id=f"MCP2-{cap['id']}-{_normalise(name)[:20].upper()}",
-            title=f"Tool '{name}' — {cap['cap'].replace('_', ' ')} capability",
+            title=f"Tool '{name}' -- {cap['cap'].replace('_', ' ')} capability",
             severity=cap["severity"],
             confidence=ConfidenceLevel.HIGH if any(kw in _normalise(name) for kw in cap["keywords"][:3]) else ConfidenceLevel.MEDIUM,
             scanner="mcp_scanner_v2",
@@ -204,20 +204,20 @@ def _compute_trust_score(
     is_live: bool,
 ) -> tuple[int, list[str]]:
     """
-    Compute trust score (0–100) and list of deduction reasons.
-    Trust is about the *source* — how much should we trust this server?
-    Risk is about the *capabilities* — how dangerous are its tools?
+    Compute trust score (0-100) and list of deduction reasons.
+    Trust is about the *source* -- how much should we trust this server?
+    Risk is about the *capabilities* -- how dangerous are its tools?
     """
     score = 100
     reasons = []
 
     if not has_auth:
         score -= 20
-        reasons.append("No authentication configured — any client can call this server")
+        reasons.append("No authentication configured -- any client can call this server")
 
     if has_wildcard:
         score -= 15
-        reasons.append("Wildcard permissions declared — overly broad access scope")
+        reasons.append("Wildcard permissions declared -- overly broad access scope")
 
     # Publisher trust
     pub_lower = publisher.lower()
@@ -225,7 +225,7 @@ def _compute_trust_score(
         score -= 10
         reasons.append(f"Publisher '{publisher}' is not in trusted publisher registry")
     else:
-        reasons.append(f"✓ Publisher '{publisher}' is a trusted source (+0 deduction)")
+        reasons.append(f"[OK] Publisher '{publisher}' is a trusted source (+0 deduction)")
 
     # Tool deductions
     total_tool_deduction = sum(t.trust_deduction for t in tools)
@@ -238,7 +238,7 @@ def _compute_trust_score(
 
     # Live server bonus (we have direct evidence)
     if is_live:
-        reasons.append("✓ Live server — tool list verified directly")
+        reasons.append("[OK] Live server -- tool list verified directly")
 
     score = max(0, score)
     return score, reasons
@@ -290,14 +290,14 @@ def _build_mcp_graph(
         )
         g.add_node(tool_node)
 
-        # Server → tool (agent calls tool via MCP)
+        # Server -> tool (agent calls tool via MCP)
         g.add_edge(Edge(
             src=server_id, dst=tool_id,
             type=EdgeType.CALLS, label="exposes tool",
             confidence=1.0,
         ))
 
-        # Tool → resources
+        # Tool -> resources
         for src, dst, etype, conf, mitre in tool.graph_edges:
             g.add_edge(Edge(
                 src=tool_id, dst=dst,
@@ -338,7 +338,7 @@ def _build_mcp_graph(
 def scan_mcp_v2(target: str, timeout: int = 10) -> tuple[MCPServerProfile, ScanResult]:
     """
     Full MCP security platform scan.
-    Returns (MCPServerProfile, ScanResult) — profile has rich data,
+    Returns (MCPServerProfile, ScanResult) -- profile has rich data,
     ScanResult is compatible with the rest of the AgentScan pipeline.
     """
     start = time.monotonic()

@@ -9,7 +9,7 @@ doesn't know what to point AgentScan at. This command scans the current
 directory (or a given path) and reports exactly what it found, what it
 can analyse, and why anything couldn't be analysed.
 
-Zero side effects — read-only detection, no scanning performed here.
+Zero side effects -- read-only detection, no scanning performed here.
 """
 
 from __future__ import annotations
@@ -156,7 +156,7 @@ def run_doctor(path: str = ".") -> list[DetectionResult]:
             severity="info",
         ))
 
-    # MCP servers — look for the characteristic {"tools": [{"name": ..., "description": ...}]} shape
+    # MCP servers -- look for the characteristic {"tools": [{"name": ..., "description": ...}]} shape
     mcp_candidates = []
     for f in json_files:
         try:
@@ -188,12 +188,12 @@ def run_doctor(path: str = ".") -> list[DetectionResult]:
             severity="ok",
         ))
 
-    # Runtime tracing check — look for AgentScanMonitor / callback usage
+    # Runtime tracing check -- look for AgentScanMonitor / callback usage
     has_runtime_hook = bool(re.search(r"AgentScan(Monitor|LangChainCallback|CrewCallback|AutoGenHook|OpenAIHook)", content))
     results.append(DetectionResult(
         "Runtime tracing configured", has_runtime_hook,
         "AgentScan runtime SDK hooks found in code" if has_runtime_hook else
-        "No AgentScan runtime monitoring hooks found — static scanning only",
+        "No AgentScan runtime monitoring hooks found -- static scanning only",
         suggested_command=None if has_runtime_hook else "see docs/ADVANCED.md for runtime SDK integration",
         severity="ok" if has_runtime_hook else "warn",
     ))
@@ -211,17 +211,17 @@ def render_doctor_report(results: list[DetectionResult]) -> str:
 
     lines = []
     lines.append("")
-    lines.append(c(BOLD + CYAN, "  AgentScan Doctor — environment check"))
+    lines.append(c(BOLD + CYAN, "  AgentScan Doctor -- environment check"))
     lines.append("")
 
     suggestions = []
     for r in results:
         if r.severity == "ok":
-            icon = c(GREEN, "✔")
+            icon = c(GREEN, "[OK]")
         elif r.severity == "warn":
             icon = c(ORANGE, "[!]")
         else:
-            icon = c(DIM, "○") if not r.found else c(GREEN, "✔")
+            icon = c(DIM, "o") if not r.found else c(GREEN, "[OK]")
 
         lines.append(f"  {icon} {c(BOLD, r.label)}")
         if r.detail:

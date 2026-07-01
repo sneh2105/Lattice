@@ -37,7 +37,7 @@ class AgentScanLangChainCallback:
     LangChain BaseCallbackHandler compatible class.
     Works with LangChain agents, chains, and LangGraph.
 
-    Designed to not fail silently — if LangChain is not installed,
+    Designed to not fail silently -- if LangChain is not installed,
     the class still works but won't auto-register as a BaseCallbackHandler.
     """
 
@@ -68,7 +68,7 @@ class AgentScanLangChainCallback:
         except ImportError:
             pass
 
-    # ── LLM callbacks ─────────────────────────────────────────────────────────
+    # -- LLM callbacks ---------------------------------------------------------
 
     def on_llm_start(self, serialized: dict, prompts: list[str], **kwargs) -> None:
         model = serialized.get("id", ["unknown"])[-1] if serialized.get("id") else "unknown"
@@ -103,9 +103,9 @@ class AgentScanLangChainCallback:
             self._monitor.log_llm_response(content=str(response))
 
     def on_llm_error(self, error: Exception, **kwargs) -> None:
-        pass  # Don't monitor errors — nothing to analyse
+        pass  # Don't monitor errors -- nothing to analyse
 
-    # ── Tool callbacks ────────────────────────────────────────────────────────
+    # -- Tool callbacks --------------------------------------------------------
 
     def on_tool_start(self, serialized: dict, input_str: str, **kwargs) -> None:
         tool_name = serialized.get("name", serialized.get("id", ["unknown"])[-1])
@@ -130,7 +130,7 @@ class AgentScanLangChainCallback:
         )
         self._current_tool = None
 
-    # ── Agent callbacks ───────────────────────────────────────────────────────
+    # -- Agent callbacks -------------------------------------------------------
 
     def on_agent_action(self, action: Any, **kwargs) -> None:
         if hasattr(action, "tool") and hasattr(action, "tool_input"):
@@ -146,7 +146,7 @@ class AgentScanLangChainCallback:
     def on_agent_finish(self, finish: Any, **kwargs) -> None:
         pass
 
-    # ── Retriever callbacks (RAG) ─────────────────────────────────────────────
+    # -- Retriever callbacks (RAG) ---------------------------------------------
 
     def on_retriever_start(self, serialized: dict, query: str, **kwargs) -> None:
         self._monitor.log_memory_read(query=query)
@@ -155,7 +155,7 @@ class AgentScanLangChainCallback:
         results = [getattr(d, "page_content", str(d))[:200] for d in (documents or [])]
         self._monitor.log_memory_read(query="(retriever result)", results=results)
 
-    # ── Monitor access ────────────────────────────────────────────────────────
+    # -- Monitor access --------------------------------------------------------
 
     def flush(self) -> RuntimeAnalysisReport:
         return self._monitor.flush()

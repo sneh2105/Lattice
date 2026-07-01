@@ -69,7 +69,7 @@ def to_json(result: ScanResult, indent: int = 2) -> str:
 
 def to_sarif(result: ScanResult) -> str:
     """
-    SARIF 2.1.0 output — integrates with GitHub Advanced Security,
+    SARIF 2.1.0 output -- integrates with GitHub Advanced Security,
     VS Code, and any SARIF-compatible tool.
     """
     rules = []

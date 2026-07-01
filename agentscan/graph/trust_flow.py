@@ -5,7 +5,7 @@ Trust Flow Graph
 Models how untrusted data crosses trust boundaries and reaches privileged actions.
 
 Core insight: the attack graph engine shows WHAT is reachable.
-The trust flow graph shows WHERE trust boundaries are crossed along the way —
+The trust flow graph shows WHERE trust boundaries are crossed along the way --
 which is the actual moment of compromise, not just the eventual impact.
 
 A trust boundary crossing happens when:
@@ -13,7 +13,7 @@ A trust boundary crossing happens when:
   - Flows into a PRIVILEGED sink (shell exec, secret access, cloud API)
   - WITHOUT passing through a validation/sanitisation node
 
-This is the AI-agent equivalent of taint tracking in traditional AppSec —
+This is the AI-agent equivalent of taint tracking in traditional AppSec --
 applied to data flow through LLM context rather than variable assignment.
 """
 
@@ -30,7 +30,7 @@ class TrustLevel(str, Enum):
     UNTRUSTED      = "untrusted"        # user input, tool results, RAG docs, external data
     SEMI_TRUSTED    = "semi_trusted"     # internal memory, prior agent outputs
     TRUSTED         = "trusted"          # system prompt, hardcoded config
-    PRIVILEGED      = "privileged"       # crown jewels — the sinks we care about
+    PRIVILEGED      = "privileged"       # crown jewels -- the sinks we care about
 
 
 # Classify nodes by trust level based on type and properties
@@ -105,7 +105,7 @@ def _is_sanitised(graph: AttackGraph, src_id: str, dst_id: str) -> bool:
 def analyse_trust_flow(graph: AttackGraph) -> TrustFlowReport:
     """
     Walk every edge in the graph, classify trust levels on both ends,
-    and flag every crossing from UNTRUSTED → PRIVILEGED without sanitisation.
+    and flag every crossing from UNTRUSTED -> PRIVILEGED without sanitisation.
     """
     crossings: list[TrustBoundaryCrossing] = []
 
@@ -123,7 +123,7 @@ def analyse_trust_flow(graph: AttackGraph) -> TrustFlowReport:
             src_trust in (TrustLevel.UNTRUSTED, TrustLevel.SEMI_TRUSTED)
             and dst_trust == TrustLevel.PRIVILEGED
         )
-        # Also flag: untrusted flowing into trusted (e.g. tool result → agent context)
+        # Also flag: untrusted flowing into trusted (e.g. tool result -> agent context)
         is_injection_crossing = (
             src_trust == TrustLevel.UNTRUSTED and dst_trust == TrustLevel.TRUSTED
         )
@@ -144,7 +144,7 @@ def analyse_trust_flow(graph: AttackGraph) -> TrustFlowReport:
         else:
             desc = (
                 f"Untrusted data from '{src_node.label}' flows into trusted context "
-                f"'{dst_node.label}' — this can poison the agent's decision-making "
+                f"'{dst_node.label}' -- this can poison the agent's decision-making "
                 f"for all subsequent privileged actions."
             )
 
@@ -186,7 +186,7 @@ def analyse_trust_flow(graph: AttackGraph) -> TrustFlowReport:
     for i, crossing in enumerate(unsanitised_crossings[:10]):
         findings.append(Finding(
             id=f"TRUST-CROSS-{i+1}-{crossing.src_node.id[:10].upper()}-{crossing.dst_node.id[:10].upper()}",
-            title=f"Unsanitised trust boundary crossing: {crossing.src_node.label} → {crossing.dst_node.label}",
+            title=f"Unsanitised trust boundary crossing: {crossing.src_node.label} -> {crossing.dst_node.label}",
             severity=crossing.severity,
             confidence=ConfidenceLevel.HIGH,
             scanner="trust_flow",
@@ -203,8 +203,8 @@ def analyse_trust_flow(graph: AttackGraph) -> TrustFlowReport:
             ),
             evidence=[Evidence(
                 source="trust_flow_graph",
-                field=f"edge[{crossing.src_node.id}→{crossing.dst_node.id}]",
-                observed_value=f"{crossing.src_trust.value} → {crossing.dst_trust.value}",
+                field=f"edge[{crossing.src_node.id}->{crossing.dst_node.id}]",
+                observed_value=f"{crossing.src_trust.value} -> {crossing.dst_trust.value}",
                 explanation=f"Edge type: {crossing.edge.type.value}, confidence: {crossing.edge.confidence}",
             )],
             mitre_atlas=crossing.edge.mitre or ["AML.T0051"],

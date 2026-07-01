@@ -15,12 +15,12 @@ from agentscan.runtime.integrations import AgentScanOpenAIHook
 from agentscan.runtime.integrations.monitor import AgentScanMonitor, MonitorConfig, agentscan_trace
 
 
-# ── OpenAI Agents SDK integration ─────────────────────────────────────────────
+# -- OpenAI Agents SDK integration ---------------------------------------------
 
 def run_triage_system(user_input: str) -> str:
     """
     Run an OpenAI Agents triage system with monitoring.
-    Triage → (handoff to) Specialist Agent.
+    Triage -> (handoff to) Specialist Agent.
     """
     try:
         from openai_agents import Agent, Runner, function_tool, handoff
@@ -77,8 +77,8 @@ def run_triage_system(user_input: str) -> str:
         instructions=(
             "You are the first point of contact. Understand the customer issue "
             "and route to the appropriate specialist. "
-            "For billing issues → billing-specialist. "
-            "For technical issues → technical-specialist."
+            "For billing issues -> billing-specialist. "
+            "For technical issues -> technical-specialist."
         ),
         handoffs=[
             handoff(billing_agent),
@@ -104,7 +104,7 @@ def run_triage_system(user_input: str) -> str:
     report = hook.flush()
 
     print(f"\n{'='*60}")
-    print("AgentScan — OpenAI Agents SDK Security Report")
+    print("AgentScan -- OpenAI Agents SDK Security Report")
     print(f"{'='*60}")
     print(f"Events   : {report.event_count}")
     print(f"Critical : {sum(1 for f in report.findings if f.severity.value == 'CRITICAL')}")
@@ -114,12 +114,12 @@ def run_triage_system(user_input: str) -> str:
     return output
 
 
-# ── Minimal example: just the monitor ─────────────────────────────────────────
+# -- Minimal example: just the monitor -----------------------------------------
 
 def minimal_monitoring_example():
     """
     Minimal: wrap any OpenAI Agents run with agentscan_trace.
-    No hooks needed — use the monitor's log_* API directly.
+    No hooks needed -- use the monitor's log_* API directly.
     """
     with agentscan_trace("openai-minimal", console_alerts=True) as monitor:
         # Log what you know about the run
@@ -130,7 +130,7 @@ def minimal_monitoring_example():
         monitor.log_tool_call("get_weather", {"city": "London"})
         monitor.log_network_call("https://api.weather.com/london", "GET")
         monitor.log_tool_result("get_weather", {"temp": 18, "condition": "cloudy"})
-        monitor.log_llm_response("It's 18°C and cloudy in London.")
+        monitor.log_llm_response("It's 18?C and cloudy in London.")
 
     print("Session complete. Report written.")
 

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-DPIA Module — Data Protection Impact Assessment Generator
+DPIA Module -- Data Protection Impact Assessment Generator
 ==========================================================
 Generates a structured DPIA document based on AgentScan findings.
 
@@ -54,7 +54,7 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
 
     sections: list[DPIASection] = []
 
-    # ── Section 1: System Description ───────────────────────────────────────
+    # -- Section 1: System Description ---------------------------------------
     cap_desc = ", ".join(caps) if caps else "No capabilities detected"
     sections.append(DPIASection(
         title="1. AI System Description",
@@ -73,7 +73,7 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
         controls=["DPDP-R3", "ISO42001-8.7", "AIA-Art11"],
     ))
 
-    # ── Section 2: Necessity and Proportionality ─────────────────────────────
+    # -- Section 2: Necessity and Proportionality -----------------------------
     high_risk_caps = [c for c in caps if c in ("shell_exec", "secret_access", "code_execution", "database")]
     if high_risk_caps:
         necessity_status = "gap"
@@ -83,7 +83,7 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
             f"The following capabilities require documented justification:\n\n"
         )
         for cap in high_risk_caps:
-            necessity_content += f"  • {cap}: Justify why this capability is necessary for the agent's stated purpose.\n"
+            necessity_content += f"  * {cap}: Justify why this capability is necessary for the agent's stated purpose.\n"
         necessity_content += (
             "\nAction required: For each high-risk capability, document the business necessity, "
             "the data minimisation measures applied, and why less intrusive alternatives were rejected."
@@ -103,7 +103,7 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
         controls=["DPDP-R3", "ISO42001-8.3", "AIA-Art9"],
     ))
 
-    # ── Section 3: Risk Identification ──────────────────────────────────────
+    # -- Section 3: Risk Identification --------------------------------------
     risk_items = []
     for f in findings:
         if f.severity in (Severity.CRITICAL, Severity.HIGH):
@@ -134,16 +134,16 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
         controls=["DPDP-R8", "RBI-AIACTS-2.1", "ISO42001-8.4", "AIA-Art9"],
     ))
 
-    # ── Section 4: Data Flows and Personal Data Processing ──────────────────
+    # -- Section 4: Data Flows and Personal Data Processing ------------------
     data_flow_gaps = []
     if "database" in caps:
-        data_flow_gaps.append("Agent has database access — map which tables contain personal data and document access scope")
+        data_flow_gaps.append("Agent has database access -- map which tables contain personal data and document access scope")
     if "file_read" in caps or "file_write" in caps:
-        data_flow_gaps.append("Agent has filesystem access — identify which files may contain personal data")
+        data_flow_gaps.append("Agent has filesystem access -- identify which files may contain personal data")
     if "network_egress" in caps:
-        data_flow_gaps.append("Agent can make outbound requests — audit whether personal data leaves the system boundary")
+        data_flow_gaps.append("Agent can make outbound requests -- audit whether personal data leaves the system boundary")
     if "email_send" in caps:
-        data_flow_gaps.append("Agent can send emails — ensure personal data in emails is minimised and consented")
+        data_flow_gaps.append("Agent can send emails -- ensure personal data in emails is minimised and consented")
 
     df_content = (
         "Personal data flows must be documented for DPDP compliance. "
@@ -151,7 +151,7 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
     )
     if data_flow_gaps:
         for gap in data_flow_gaps:
-            df_content += f"  ⚠ {gap}\n"
+            df_content += f"  [!] {gap}\n"
         df_status = "gap"
     else:
         df_content += "  No high-risk data flow capabilities detected in agent configuration.\n"
@@ -172,7 +172,7 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
         controls=["DPDP-R3", "DPDP-R9", "DPDP-R8"],
     ))
 
-    # ── Section 5: Controls and Mitigations ─────────────────────────────────
+    # -- Section 5: Controls and Mitigations ---------------------------------
     has_guardrails = not any("missing-control" in f.tags for f in findings)
     controls_content = "Controls identified and gaps:\n\n"
 
@@ -182,22 +182,22 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
     if has_guardrails:
         controls_implemented.append("Output guardrails / content filter configured")
     else:
-        controls_missing.append("Output guardrails — required under RBI MRM 2026 Tier-3 and ISO 42001 Clause 8.4")
+        controls_missing.append("Output guardrails -- required under RBI MRM 2026 Tier-3 and ISO 42001 Clause 8.4")
 
     if "shell_exec" not in caps and "code_execution" not in caps:
         controls_implemented.append("No code/shell execution capability (reduces blast radius)")
     else:
-        controls_missing.append("Sandbox for code/shell execution — required before production deployment")
+        controls_missing.append("Sandbox for code/shell execution -- required before production deployment")
 
     if "secret_access" not in caps:
         controls_implemented.append("No direct secret access (secrets should be injected at runtime)")
     else:
-        controls_missing.append("Secret access audit logging — every credential retrieval must be logged and alertable")
+        controls_missing.append("Secret access audit logging -- every credential retrieval must be logged and alertable")
 
     for c in controls_implemented:
-        controls_content += f"  ✓ {c}\n"
+        controls_content += f"  [OK] {c}\n"
     for c in controls_missing:
-        controls_content += f"  ✗ {c}\n"
+        controls_content += f"  [X] {c}\n"
 
     sections.append(DPIASection(
         title="5. Controls and Mitigations",
@@ -206,7 +206,7 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
         controls=["RBI-MRM-3.2", "ISO42001-8.4", "AIA-Art16", "SOC2-CC6.1"],
     ))
 
-    # ── Section 6: Residual Risk and Recommendation ─────────────────────────
+    # -- Section 6: Residual Risk and Recommendation -------------------------
     risk_score = result.risk_score()
     if risk_score >= 70 or result.attack_paths:
         overall_risk = "critical"

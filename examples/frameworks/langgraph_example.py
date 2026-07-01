@@ -18,7 +18,7 @@ from agentscan.runtime.integrations import AgentScanLangChainCallback
 from agentscan.runtime.integrations.monitor import agentscan_trace
 
 
-# ── Tool definitions ───────────────────────────────────────────────────────────
+# -- Tool definitions -----------------------------------------------------------
 
 @tool
 def search_knowledge_base(query: str) -> str:
@@ -38,7 +38,7 @@ def send_notification(user_id: str, message: str) -> str:
     return f"Notification sent to {user_id}: {message}"
 
 
-# ── AgentScan + LangGraph integration ─────────────────────────────────────────
+# -- AgentScan + LangGraph integration -----------------------------------------
 
 def build_monitored_graph():
     """Build a LangGraph agent with AgentScan monitoring wired in."""
@@ -109,7 +109,7 @@ def run_monitored_agent(user_input: str) -> str:
 
 def _print_report(report) -> None:
     print(f"\n{'='*60}")
-    print("AgentScan — LangGraph Security Report")
+    print("AgentScan -- LangGraph Security Report")
     print(f"{'='*60}")
     print(f"Events   : {report.event_count}")
     print(f"Duration : {report.duration_ms}ms")
@@ -120,10 +120,10 @@ def _print_report(report) -> None:
     if report.attack_paths:
         print(f"\nAttack paths: {len(report.attack_paths)}")
         for p in report.attack_paths:
-            print(f"  ⚠ {p.title}")
+            print(f"  [!] {p.title}")
 
 
-# ── Example: streaming monitoring ─────────────────────────────────────────────
+# -- Example: streaming monitoring ---------------------------------------------
 
 def run_with_streaming_alerts(user_input: str) -> None:
     """

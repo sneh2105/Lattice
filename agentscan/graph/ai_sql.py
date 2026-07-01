@@ -24,7 +24,7 @@ Examples:
   TRUST OF mcp_server_1
   COUNT tool WHERE severity = 'CRITICAL'
 
-This is intentionally a small DSL, not a full query language — the value
+This is intentionally a small DSL, not a full query language -- the value
 is in making the graph queryable in security-analyst language, not in
 language completeness.
 """
@@ -98,7 +98,7 @@ class AISQLEngine:
             return QueryResult(query=query_str, query_type="error", success=False, rows=[],
                               error=f"Query execution error: {e}")
 
-    # ── FIND ──────────────────────────────────────────────────────────────────
+    # -- FIND ------------------------------------------------------------------
 
     def _exec_find(self, q: str) -> QueryResult:
         # FIND <node_type> [WHERE <conditions>]
@@ -184,7 +184,7 @@ class AISQLEngine:
         if field == "crown_jewel_value":
             return node.crown_jewel_value
         if field == "reachable_from":
-            # Special handled in _matches_conditions directly — placeholder
+            # Special handled in _matches_conditions directly -- placeholder
             return None
         if field == "severity":
             # Inferred from crown_jewel_value
@@ -211,7 +211,7 @@ class AISQLEngine:
             pass
         return False
 
-    # ── PATH FROM x TO y ──────────────────────────────────────────────────────
+    # -- PATH FROM x TO y ------------------------------------------------------
 
     def _exec_path(self, q: str) -> QueryResult:
         m = re.match(r"PATH\s+FROM\s+(\S+)\s+TO\s+(\S+)$", q, re.IGNORECASE)
@@ -238,7 +238,7 @@ class AISQLEngine:
             explanation=f"Path found: {len(path)} hops from '{src}' to '{dst}'",
         )
 
-    # ── REACHABLE FROM ────────────────────────────────────────────────────────
+    # -- REACHABLE FROM --------------------------------------------------------
 
     def _exec_reachable(self, q: str) -> QueryResult:
         m = re.match(r"REACHABLE\s+FROM\s+(\S+)$", q, re.IGNORECASE)
@@ -255,7 +255,7 @@ class AISQLEngine:
             explanation=f"{len(rows)} node(s) reachable from '{src}'",
         )
 
-    # ── CAN x ACCESS y ────────────────────────────────────────────────────────
+    # -- CAN x ACCESS y --------------------------------------------------------
 
     def _exec_can_access(self, q: str) -> QueryResult:
         m = re.match(r"CAN\s+(\S+)\s+ACCESS\s+(\S+)$", q, re.IGNORECASE)
@@ -275,11 +275,11 @@ class AISQLEngine:
         return QueryResult(
             query=q, query_type="can_access", success=True,
             rows=[{"src": src, "dst": dst, "can_access": can_access,
-                  "path": " → ".join(self.graph.nodes[n].label for n in path) if path else None}],
-            explanation=f"{'YES' if can_access else 'NO'} — '{src}' can{'' if can_access else 'not'} reach '{dst}'",
+                  "path": " -> ".join(self.graph.nodes[n].label for n in path) if path else None}],
+            explanation=f"{'YES' if can_access else 'NO'} -- '{src}' can{'' if can_access else 'not'} reach '{dst}'",
         )
 
-    # ── BLAST RADIUS OF ───────────────────────────────────────────────────────
+    # -- BLAST RADIUS OF -------------------------------------------------------
 
     def _exec_blast_radius(self, q: str) -> QueryResult:
         m = re.match(r"BLAST\s+RADIUS\s+OF\s+(\S+)$", q, re.IGNORECASE)
@@ -297,7 +297,7 @@ class AISQLEngine:
                        f"{len(br['crown_jewels_reachable'])} crown jewels reachable",
         )
 
-    # ── TRUST OF ──────────────────────────────────────────────────────────────
+    # -- TRUST OF --------------------------------------------------------------
 
     def _exec_trust(self, q: str) -> QueryResult:
         m = re.match(r"TRUST\s+OF\s+(\S+)$", q, re.IGNORECASE)
@@ -313,7 +313,7 @@ class AISQLEngine:
             explanation=f"Trust score of '{node_id}': {trust['trust_score']}/100 [{trust['trust_level']}]",
         )
 
-    # ── COUNT ─────────────────────────────────────────────────────────────────
+    # -- COUNT -----------------------------------------------------------------
 
     def _exec_count(self, q: str) -> QueryResult:
         m = re.match(r"COUNT\s+(\w+)\s*(?:WHERE\s+(.*))?$", q, re.IGNORECASE)
@@ -333,7 +333,7 @@ class AISQLEngine:
             explanation=f"{len(nodes)} {node_type_str}(s) match the query",
         )
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
+    # -- Helpers ---------------------------------------------------------------
 
     def _node_to_row(self, node: Node) -> dict[str, Any]:
         return {
@@ -345,7 +345,7 @@ class AISQLEngine:
         }
 
 
-# ── Convenience: natural-language-ish query suggestions ──────────────────────
+# -- Convenience: natural-language-ish query suggestions ----------------------
 
 QUERY_EXAMPLES = [
     "FIND tool WHERE capability = 'shell_exec'",
