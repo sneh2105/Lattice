@@ -89,4 +89,4 @@ def test_cli_html_output_flag():
         capture_output=True, text=True, encoding="utf-8"
     )
     assert Path(out_file).exists()
-    assert "HTML report written" in result.stdout
+    assert "AgentScan Report" in result.stdout
