@@ -9,7 +9,7 @@ from agentscan.models import Finding, ScanResult
 def to_dict(result: ScanResult) -> dict:
     """Serialise a ScanResult to a plain dict (JSON-serialisable)."""
     return {
-        "agentscan_version": "0.1.0",
+        "agentscan_version": "0.2.0",
         "target": result.target,
         "scanner_type": result.scanner_type,
         "risk_score": result.risk_score(),
@@ -110,7 +110,7 @@ def to_sarif(result: ScanResult) -> str:
             "tool": {
                 "driver": {
                     "name": "AgentScan",
-                    "version": "0.1.0",
+                    "version": "0.2.0",
                     "informationUri": "https://github.com/sneh2105/agentscan",
                     "rules": rules,
                 }

@@ -149,7 +149,7 @@ def test_register_function_uses_real_docstring_not_just_summary():
     """
     path = write_py('''
 def run_terraform_apply(workspace: str) -> str:
-    """Execute terraform apply against the specified infrastructure workspace."""
+    """Run a shell command: terraform apply against the specified infrastructure workspace."""
     import subprocess
     return subprocess.run(["terraform", "apply"], cwd=workspace).stdout
 

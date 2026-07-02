@@ -100,7 +100,12 @@ class ToolExtractor(ast.NodeVisitor):
     def __init__(self, source_file: str):
         self.source_file = source_file
         self.tools: list[ExtractedTool] = []
-        self._function_docstrings: dict[str, str] = {}  # name -> docstring, populated first pass
+        self._function_docstrings: dict[str, str] = {}
+        # Base classes that mark a class as an agent tool.
+        # Seeded with known third-party names; grows as we find internal wrappers.
+        self._known_tool_bases: set[str] = {
+            "BaseTool", "StructuredTool",  # LangChain / CrewAI
+        }
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._function_docstrings[node.name] = _get_docstring(node)
@@ -184,7 +189,17 @@ class ToolExtractor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        """Detect BaseTool subclasses (LangChain / CrewAI class-based tools)."""
+        """
+        Detect BaseTool subclasses (LangChain / CrewAI class-based tools).
+
+        Handles one level of internal wrapper inheritance -- the common enterprise
+        pattern where every team subclasses a shared internal base class
+        (e.g. InternalAPITool(BaseTool)) rather than inheriting from the
+        third-party base directly. We build a set of known tool base classes
+        as we walk the AST, so InternalAPITool gets added to the set when we
+        see it subclasses BaseTool, and LookupAccountBalanceTool(InternalAPITool)
+        is then correctly recognised as a tool on the next pass.
+        """
         base_names = []
         for base in node.bases:
             if isinstance(base, ast.Name):
@@ -192,31 +207,48 @@ class ToolExtractor(ast.NodeVisitor):
             elif isinstance(base, ast.Attribute):
                 base_names.append(base.attr)
 
-        if any(b in ("BaseTool", "StructuredTool") for b in base_names):
-            # Look for name: str = "..." and description: str = "..." class attributes
+        # Direct match OR one-level-deep internal wrapper
+        is_tool_class = any(b in self._known_tool_bases for b in base_names)
+
+        if is_tool_class:
+            # Check if this is itself a wrapper (no name/description attrs = abstract base)
+            has_name_attr = False
+            has_desc_attr = False
             tool_name = node.name
             description = ""
+
             for stmt in node.body:
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                     if stmt.target.id == "name" and isinstance(stmt.value, ast.Constant):
                         tool_name = stmt.value.value
+                        has_name_attr = True
                     if stmt.target.id == "description" and isinstance(stmt.value, ast.Constant):
                         description = stmt.value.value
+                        has_desc_attr = True
                 elif isinstance(stmt, ast.Assign):
                     for target in stmt.targets:
                         if isinstance(target, ast.Name) and target.id == "name" and isinstance(stmt.value, ast.Constant):
                             tool_name = stmt.value.value
+                            has_name_attr = True
                         if isinstance(target, ast.Name) and target.id == "description" and isinstance(stmt.value, ast.Constant):
                             description = stmt.value.value
+                            has_desc_attr = True
 
-            self.tools.append(ExtractedTool(
-                name=tool_name,
-                description=description or _get_docstring(node) if hasattr(node, "__doc__") else description,
-                framework_hint="langchain_crewai_or_nova_act",
-                source_file=self.source_file,
-                line_number=node.lineno,
-                decorator_used="class BaseTool",
-            ))
+            if has_name_attr or has_desc_attr:
+                # Concrete tool class -- extract it
+                self.tools.append(ExtractedTool(
+                    name=tool_name,
+                    description=description,
+                    framework_hint="langchain_crewai_or_nova_act",
+                    source_file=self.source_file,
+                    line_number=node.lineno,
+                    decorator_used="class BaseTool",
+                ))
+            else:
+                # Abstract wrapper class -- add its name to known bases so
+                # subclasses of it are detected too (one-level indirection)
+                self._known_tool_bases.add(node.name)
+
         self.generic_visit(node)
 
     def visit_Assign(self, node: ast.Assign) -> None:
@@ -282,6 +314,10 @@ class ToolExtractor(ast.NodeVisitor):
         return result or None
 
 
+# Base class names that mark a class as an agent tool (canonical names from third-party libs)
+_KNOWN_THIRD_PARTY_BASES = {"BaseTool", "StructuredTool"}
+
+
 def extract_tools_from_file(path: Path) -> list[ExtractedTool]:
     try:
         source = path.read_text(encoding="utf-8")
@@ -290,11 +326,54 @@ def extract_tools_from_file(path: Path) -> list[ExtractedTool]:
         return []
 
     extractor = ToolExtractor(str(path))
-    # Pass 1: collect all function docstrings regardless of source order
+
+    # Pre-pass 0: collect import aliases for known base classes
+    # e.g. "from crewai_tools import BaseTool as CrewBaseTool" -- add "CrewBaseTool"
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            aliases = node.names if hasattr(node, "names") else []
+            for alias in aliases:
+                # alias.name is the original name, alias.asname is the local alias
+                if alias.name in _KNOWN_THIRD_PARTY_BASES and alias.asname:
+                    extractor._known_tool_bases.add(alias.asname)
+                # Also add without alias (in case it's a direct import)
+                if alias.name in _KNOWN_THIRD_PARTY_BASES:
+                    extractor._known_tool_bases.add(alias.name)
+
+    # Pre-pass 1: collect all function docstrings regardless of source order
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             extractor._function_docstrings[node.name] = _get_docstring(node)
-    # Pass 2: extract tools (decorators, classes, registration calls)
+
+    # Pre-pass 2: collect wrapper/abstract base classes (internal BaseTool subclasses
+    # with no name/description attributes -- they are wrappers, not concrete tools).
+    # We do this as a separate walk so the bases set is complete before Pass 3.
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        base_names = []
+        for base in node.bases:
+            if isinstance(base, ast.Name):
+                base_names.append(base.id)
+            elif isinstance(base, ast.Attribute):
+                base_names.append(base.attr)
+        if not any(b in extractor._known_tool_bases for b in base_names):
+            continue
+        # Check if it has name/description attrs (concrete tool) or not (wrapper)
+        has_tool_attrs = any(
+            (isinstance(s, ast.AnnAssign) and isinstance(s.target, ast.Name)
+             and s.target.id in ("name", "description") and isinstance(s.value, ast.Constant))
+            or (isinstance(s, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id in ("name", "description")
+                        for t in s.targets)
+                and isinstance(s.value, ast.Constant))
+            for s in node.body
+        )
+        if not has_tool_attrs:
+            # Abstract wrapper -- add its name so subclasses are detected
+            extractor._known_tool_bases.add(node.name)
+
+    # Pass 3: extract tools (decorators, classes, registration calls)
     extractor.visit(tree)
     return extractor.tools
 
@@ -337,23 +416,87 @@ def scan_source(target: str) -> ScanResult:
         tools = extract_tools_from_directory(path)
 
     if not tools:
+        # Check if the file(s) actually import any agent frameworks.
+        # If they do, we found something we couldn't parse -- that's different
+        # from a clean codebase with no agents. Warn so reviewers don't trust
+        # a false green.
+        framework_imports_found = []
+        check_content = ""
+        if path.is_file():
+            try:
+                check_content = path.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                pass
+        else:
+            for py_file in list(path.rglob("*.py"))[:50]:
+                try:
+                    check_content += py_file.read_text(encoding="utf-8", errors="ignore")[:2000]
+                except Exception:
+                    pass
+
+        import re as _re
+        FRAMEWORK_HINTS = {
+            "LangChain / CrewAI / Nova Act": [r"from langchain", r"from crewai", r"from nova_act"],
+            "AutoGen": [r"import autogen", r"register_function"],
+            "OpenAI Agents SDK": [r"from openai_agents", r"function_tool"],
+        "OpenAI (raw client)": [r"from openai import", r"import openai"],
+        "Anthropic (raw client)": [r"from anthropic import", r"import anthropic"],
+            "LlamaIndex": [r"from llama_index"],
+            "PydanticAI": [r"from pydantic_ai"],
+            "Haystack": [r"from haystack"],
+        }
+        for framework, patterns in FRAMEWORK_HINTS.items():
+            if any(_re.search(p, check_content) for p in patterns):
+                framework_imports_found.append(framework)
+
+        if framework_imports_found:
+            title = "Agent framework imported but zero tools detected -- coverage gap"
+            explanation = (
+                "AgentScan found imports from " + ", ".join(framework_imports_found) +
+                " but could not extract any tool definitions using known static patterns "
+                "(@tool, @function_tool, register_function, BaseTool subclasses, "
+                "FunctionTool.from_defaults, raw schema dicts). "
+                "This typically means tools are registered dynamically (via a registry dict, "
+                "factory function, or internal wrapper class) -- a pattern AgentScan cannot "
+                "fully resolve without runtime information. "
+                "This is NOT a clean result -- it means the scan could not assess coverage."
+            )
+            remediation = (
+                "Manually review tool registration in this codebase. "
+                "If tools are registered via a dict or factory, consider adding a static "
+                "TOOLS = [...] declaration that AgentScan can read. "
+                "File an issue with the pattern so support can be added."
+            )
+            severity = Severity.MEDIUM
+        else:
+            title = "No agent tool definitions found in source"
+            explanation = (
+                "AgentScan scanned this path for tool definitions using known patterns "
+                "(@tool, @function_tool, register_function, BaseTool subclasses) but found none. "
+                "This may mean the agent has no tools, or uses a pattern not yet supported."
+            )
+            remediation = (
+                "If this codebase does define agent tools, file an issue with the pattern used "
+                "so AgentScan can add support for it."
+            )
+            severity = Severity.INFO
+
         return ScanResult(
             target=target, scanner_type="source_scanner",
             findings=[Finding(
                 id="SRC-NO-TOOLS-FOUND",
-                title="No agent tool definitions found in source",
-                severity=Severity.INFO, confidence=ConfidenceLevel.MEDIUM,
+                title=title,
+                severity=severity, confidence=ConfidenceLevel.MEDIUM,
                 scanner="source_scanner",
-                explanation=(
-                    "AgentScan scanned this path for tool definitions using known patterns "
-                    "(@tool, @function_tool, register_function, BaseTool subclasses) but found none. "
-                    "This may mean the agent has no tools, or uses a pattern not yet supported."
-                ),
-                impact="None -- informational only",
-                remediation="If this codebase does define agent tools, file an issue with the pattern used "
-                            "so AgentScan can add support for it.",
+                explanation=explanation,
+                impact="None -- informational only" if severity == Severity.INFO else
+                       "Tools may exist that AgentScan could not assess -- treat as unknown risk.",
+                remediation=remediation,
             )],
-            metadata={"files_scanned": 1 if path.is_file() else len(list(path.rglob("*.py")))},
+            metadata={
+                "files_scanned": 1 if path.is_file() else len(list(path.rglob("*.py"))),
+                "framework_imports_found": framework_imports_found,
+            },
             scan_duration_ms=int((time.monotonic()-start)*1000),
         )
 

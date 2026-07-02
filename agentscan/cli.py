@@ -115,6 +115,11 @@ Compliance:   agentscan compliance map   ./agent.yaml
     elif args.command == "supply":   result = scan_supply_chain(args.target)
     else: parser.print_help(); sys.exit(1)
 
+    # Exit 2 on scan errors (distinct from exit 1 = findings, exit 0 = clean).
+    # This ensures CI/CD gates can distinguish "safe" from "scan failed to run".
+    if result.error:
+        sys.exit(2)
+
     # --open: generate HTML and launch browser regardless of --output flag
     open_browser = getattr(args, "open_browser", False)
 

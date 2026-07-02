@@ -28,7 +28,7 @@ from agentscan.models import (
 MCP_DANGEROUS_TOOL_PATTERNS: list[dict] = [
     {
         "id": "MCP-SHELL",
-        "keywords": ["shell", "bash", "exec", "terminal", "command", "subprocess", "run"],
+        "keywords": ["shell_exec", "bash", "exec_host", "exec_command", "terminal", "subprocess", "run_shell", "run_command", "run_script", "shell_command", "execute_shell", "execute_command"],
         "severity": Severity.CRITICAL,
         "title": "MCP tool exposes shell execution",
         "explanation": (
@@ -87,6 +87,24 @@ MCP_DANGEROUS_TOOL_PATTERNS: list[dict] = [
         ),
         "impact": "Data exfiltration, SSRF, C2 beaconing",
         "remediation": "Restrict network tool to an allowlist of domains. Block requests to private IP ranges (SSRF prevention).",
+        "mitre": ["AML.T0040"],
+    },
+    {
+        "id": "MCP-DATABASE",
+        "keywords": ["query_database", "query_db", "database", "sql_query", "run_query",
+                     "db_query", "execute_query", "postgres", "mysql", "mongo", "dynamo"],
+        "severity": Severity.HIGH,
+        "title": "MCP tool has database access",
+        "explanation": (
+            "This MCP tool can query or modify a database. "
+            "Combined with a network egress tool, this creates a data exfiltration chain: "
+            "an attacker can dump database contents and send them to an external server."
+        ),
+        "impact": "Data exfiltration, data manipulation, injection attacks",
+        "remediation": (
+            "Scope database tools to read-only access and specific tables. "
+            "Audit all queries. Never combine with unconstrained network egress tools."
+        ),
         "mitre": ["AML.T0040"],
     },
     {
@@ -312,6 +330,22 @@ def scan_mcp(target: str, timeout: int = 10) -> ScanResult:
                 "An injected prompt can instruct the agent to retrieve secrets and POST them externally."
             ),
             mitre_atlas=["AML.T0051", "AML.T0040"],
+        ))
+
+    if "DATABASE" in cap_ids and "NET" in cap_ids:
+        attack_paths.append(AttackPath(
+            id="MCP-PATH-DB-EXFIL",
+            title="Database exfiltration path via MCP",
+            severity=Severity.HIGH,
+            steps=[f for f in findings if "MCP-DATABASE" in f.id or "MCP-NET" in f.id],
+            entry_point="Prompt injection via user message or malicious tool response",
+            impact="Database contents exfiltrated to attacker-controlled server",
+            description=(
+                "This MCP server exposes both a database query tool and a network egress tool. "
+                "An injected prompt can instruct the agent to dump database tables and POST "
+                "the results to an external server."
+            ),
+            mitre_atlas=["AML.T0040", "AML.T0051"],
         ))
 
     elapsed_ms = int((time.monotonic() - start) * 1000)

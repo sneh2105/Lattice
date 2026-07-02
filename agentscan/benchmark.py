@@ -63,7 +63,7 @@ SCENARIOS = [
                  40, False, "Shell exec (real source code)",
                  "Real LangChain Python code (no YAML) with a subprocess.run() call"),
     ScenarioSpec("vulnerable_agents/04_database_exfiltration", ["mcp", "mcp_server.json"],
-                 60, True, "Database exfil via MCP",
+                 40, True, "Database exfil via MCP",
                  "An MCP server with DB + network tools and no authentication configured"),
     ScenarioSpec("vulnerable_agents/05_financial_fraud", ["source", "finance_agent.py"],
                  55, True, "Financial fraud chain",

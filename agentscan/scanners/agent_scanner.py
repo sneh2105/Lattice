@@ -33,7 +33,7 @@ from agentscan.models import (
 
 CAPABILITY_MAP: dict[str, dict] = {
     "shell_exec": {
-        "keywords": ["shell", "bash", "exec", "subprocess", "terminal", "command", "run_code", "execute"],
+        "keywords": ["shell_exec", "run_shell", "run_command", "bash", "subprocess", "os.system", "exec_host", "exec_command", "shell_command", "terminal", "execute_shell", "execute_command", "execute_script", "run_code", "exec_code", "run_script"],
         "severity": Severity.CRITICAL,
         "description": "Can execute arbitrary operating system commands",
         "impact": "Full host compromise: data exfiltration, persistence, lateral movement",
@@ -89,9 +89,11 @@ CAPABILITY_MAP: dict[str, dict] = {
         "cwe": [],
     },
     "financial_transaction": {
-        "keywords": ["wire_transfer", "wire transfer", "payment", "transfer_funds",
-                      "initiate_transfer", "refund", "charge_card", "stripe", "ach_transfer",
-                      "disburse", "payout"],
+        "keywords": ["wire_transfer", "wire transfer", "transfer_funds",
+                      "initiate_transfer", "initiate_payment", "process_payment",
+                      "issue_refund", "process_refund", "refund_payment",
+                      "charge_card", "charge_customer", "stripe", "ach_transfer",
+                      "disburse", "payout", "send_money", "move_money"],
         "severity": Severity.CRITICAL,
         "description": "Can initiate financial transactions or move money",
         "impact": "Direct financial loss via unauthorised or injected transactions",
@@ -485,11 +487,17 @@ def scan_agent_config(path: str | Path) -> ScanResult:
     for combo in DANGEROUS_COMBINATIONS:
         required_caps = combo["caps"]
         if required_caps.issubset(all_caps):
-            involved_findings = [
-                f for f in findings
-                if any(tag in f.tags for tag in required_caps)
-            ]
-            path_id = f"PATH-{'_'.join(sorted(required_caps))[:30].upper()}"
+            # Dedupe by tool name: a tool matching multiple capability tags
+            # would otherwise appear twice in the chain (P2b fix).
+            seen_tool_names: set[str] = set()
+            involved_findings = []
+            for f in findings:
+                if any(tag in f.tags for tag in required_caps):
+                    tool_key = f.title.split("'")[1] if "'" in f.title else f.id
+                    if tool_key not in seen_tool_names:
+                        seen_tool_names.add(tool_key)
+                        involved_findings.append(f)
+            path_id = "PATH-" + "_".join(sorted(required_caps))[:30].upper()
             attack_paths.append(AttackPath(
                 id=path_id,
                 title=combo["title"],
