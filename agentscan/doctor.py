@@ -116,66 +116,111 @@ def run_doctor(path: str = ".") -> list[DetectionResult]:
         ))
 
     # Tool count estimate
-    tool_matches = sum(len(re.findall(p, content)) for p in TOOL_DECORATOR_PATTERNS)
-    if tool_matches > 0:
+    # Delegate tool counting to source_scanner so doctor and source always agree.
+    # Regex patterns drift -- the scanner's AST extractor is the ground truth.
+    try:
+        from agentscan.scanners.source_scanner import extract_tools_from_directory, extract_tools_from_file
+        if root.is_file():
+            _tools_found = extract_tools_from_file(root)
+        else:
+            _tools_found = extract_tools_from_directory(root)
+        tool_count = len(_tools_found)
+    except Exception:
+        # Fallback to regex if import fails for any reason
+        tool_count = sum(len(re.findall(p, content)) for p in TOOL_DECORATOR_PATTERNS)
+
+    if tool_count > 0:
         results.append(DetectionResult(
             "Tool definitions discovered", True,
-            f"~{tool_matches} tool decorator(s)/registration(s) found across {len(py_files)} Python file(s)",
-            suggested_command=f"agentscan source {path}",
+            str(tool_count) + " tool(s) found across " + str(len(py_files)) + " Python file(s)",
+            suggested_command="agentscan source " + path,
             severity="ok",
         ))
     else:
         results.append(DetectionResult(
             "Tool definitions discovered", False,
-            f"No @tool / @function_tool / register_function patterns found in {len(py_files)} Python file(s)",
+            "No tool definitions found in " + str(len(py_files)) + " Python file(s)",
             severity="info",
         ))
 
-    # YAML/JSON agent configs (exclude CI workflow files, which always mention "tool"/"agent" incidentally)
-    agent_yaml_candidates = []
-    for f in yaml_files:
+    # YAML/JSON agent configs and MCP manifests.
+    # We use the actual scanners to classify each file so doctor and the
+    # scan commands always agree on what a file is.
+    from agentscan.scanners.agent_scanner import _extract_tools
+    import json as _json
+
+    agent_config_candidates = []
+    mcp_candidates = []
+
+    all_config_files = yaml_files + json_files
+
+    for f in all_config_files:
         if ".github" in f.parts or "workflows" in f.parts:
             continue
         try:
             text = f.read_text(errors="ignore")
-            if re.search(r"\btools?\s*:", text, re.IGNORECASE) or re.search(r"\bcapabilit", text, re.IGNORECASE):
-                agent_yaml_candidates.append(f)
         except Exception:
-            pass
-    if agent_yaml_candidates:
+            continue
+
+        # Try to parse as structured config
+        parsed = None
+        if f.suffix in (".yaml", ".yml"):
+            try:
+                import yaml as _yaml
+                parsed = _yaml.safe_load(text)
+            except Exception:
+                pass
+        elif f.suffix == ".json":
+            try:
+                parsed = _json.loads(text)
+            except Exception:
+                pass
+
+        if not isinstance(parsed, dict):
+            continue
+
+        # MCP manifest signal: has "tools" list AND each tool has "inputSchema" or "input_schema"
+        # This is the MCP wire format distinguisher -- agent configs use "description" without schema
+        tools_list = parsed.get("tools", [])
+        if isinstance(tools_list, list) and tools_list:
+            has_input_schema = any(
+                isinstance(t, dict) and ("inputSchema" in t or "input_schema" in t)
+                for t in tools_list[:5]
+            )
+            if has_input_schema:
+                mcp_candidates.append(f)
+                continue
+
+        # Agent config: has tools extractable by the agent scanner
+        tools = _extract_tools(parsed)
+        if tools:
+            agent_config_candidates.append(f)
+
+    if agent_config_candidates:
         results.append(DetectionResult(
             "Declarative agent config(s)", True,
-            ", ".join(str(f.relative_to(root)) for f in agent_yaml_candidates[:5]),
-            suggested_command=f"agentscan agent {agent_yaml_candidates[0].relative_to(root)}",
+            ", ".join(str(f.relative_to(root)) for f in agent_config_candidates[:5]),
+            suggested_command="agentscan agent " + str(agent_config_candidates[0].relative_to(root)),
             severity="ok",
         ))
     else:
         results.append(DetectionResult(
             "Declarative agent config(s)", False,
-            "No YAML/JSON files matching agent/tool patterns",
+            "No YAML/JSON agent configs found",
             severity="info",
         ))
 
-    # MCP servers -- look for the characteristic {"tools": [{"name": ..., "description": ...}]} shape
-    mcp_candidates = []
-    for f in json_files:
-        try:
-            text = f.read_text(errors="ignore")
-            if re.search(r'"tools"\s*:\s*\[', text) and re.search(r'"name"\s*:', text) and re.search(r'"description"\s*:', text):
-                mcp_candidates.append(f)
-        except Exception:
-            pass
     if mcp_candidates:
         results.append(DetectionResult(
             "MCP server manifest(s)", True,
             ", ".join(str(f.relative_to(root)) for f in mcp_candidates[:5]),
-            suggested_command=f"agentscan mcp {mcp_candidates[0].relative_to(root)}",
+            suggested_command="agentscan mcp " + str(mcp_candidates[0].relative_to(root)),
             severity="ok",
         ))
     else:
         results.append(DetectionResult(
             "MCP server manifest(s)", False,
-            "No JSON files matching MCP tool/inputSchema structure",
+            "No MCP server manifests found (look for tools with inputSchema)",
             severity="info",
         ))
 

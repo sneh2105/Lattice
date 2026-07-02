@@ -101,7 +101,7 @@ CAPABILITY_MAP: dict[str, dict] = {
         "cwe": ["CWE-840"],
     },
     "code_execution": {
-        "keywords": ["python_repl", "code_interpreter", "eval", "repl", "jupyter", "notebook"],
+        "keywords": ["python_repl", "code_interpreter", "eval_code", "jupyter", "notebook", "ipython"],
         "severity": Severity.CRITICAL,
         "description": "Can execute arbitrary code in a runtime",
         "impact": "Full arbitrary code execution within agent context",
@@ -202,19 +202,45 @@ def _normalise(name: str) -> str:
     return name.lower().replace("-", "_").replace(" ", "_")
 
 
+_SHELL_VERB_TOKENS = {"run", "exec", "execute", "shell", "bash", "invoke"}
+_SHELL_TARGET_TOKENS = {"script", "command", "shell", "bash", "cmd",
+                        "terminal", "process", "subprocess"}
+
+
+def _has_shell_token_pair(text: str) -> bool:
+    """
+    Return True if text contains both a shell-verb token and a
+    shell-target token when split on underscores/spaces.
+    Catches run_remediation_script, execute_patch_script, shell_diagnostic
+    without re-introducing bare run/execute false positives on DB tools.
+    """
+    tokens = set(text.lower().replace("-", "_").replace(" ", "_").split("_"))
+    tokens.update(text.lower().split())
+    return bool(tokens & _SHELL_VERB_TOKENS) and bool(tokens & _SHELL_TARGET_TOKENS)
+
+
 def _detect_capabilities(tool_name: str, tool_def: dict) -> set[str]:
     """Map a tool definition to a set of capability class names."""
     detected: set[str] = set()
     haystack = _normalise(tool_name)
+    description = ""
     # Also check description and any 'permissions' field
     if isinstance(tool_def, dict):
-        haystack += " " + _normalise(tool_def.get("description", ""))
+        description = tool_def.get("description", "")
+        haystack += " " + _normalise(description)
         haystack += " " + _normalise(str(tool_def.get("permissions", "")))
         haystack += " " + _normalise(str(tool_def.get("type", "")))
 
     for cap_name, cap in CAPABILITY_MAP.items():
         if any(kw in haystack for kw in cap["keywords"]):
             detected.add(cap_name)
+
+    # Stage 2: token co-occurrence for shell_exec.
+    # Only applies when not already detected via keyword match.
+    if "shell_exec" not in detected:
+        if _has_shell_token_pair(tool_name + " " + description):
+            detected.add("shell_exec")
+
     return detected
 
 

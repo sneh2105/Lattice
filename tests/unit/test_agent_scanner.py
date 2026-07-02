@@ -174,3 +174,62 @@ def test_recursive_fallback_finds_deeply_nested_tools():
     result = scan_agent_config(path)
     critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
     assert critical
+
+
+def test_token_split_catches_run_remediation_script():
+    """
+    Regression: run_remediation_script was a false negative after the
+    run/execute keyword removal because 'remediation' sits between 'run'
+    and 'script'. Token co-occurrence approach must catch it.
+    """
+    path = write_config({"tools": [
+        {"name": "run_remediation_script",
+         "description": "Executes a pre-approved remediation shell script on the affected host"},
+    ]})
+    result = scan_agent_config(path)
+    critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
+    assert critical, "run_remediation_script must be flagged CRITICAL"
+    assert any("run_remediation_script" in f.title for f in critical)
+
+
+def test_token_split_catches_execute_patch_script():
+    path = write_config({"tools": [
+        {"name": "execute_patch_script",
+         "description": "Runs a patch deployment script on the server"},
+    ]})
+    result = scan_agent_config(path)
+    critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
+    assert critical, "execute_patch_script must be flagged CRITICAL"
+
+
+def test_token_split_catches_shell_diagnostic():
+    path = write_config({"tools": [
+        {"name": "shell_diagnostic",
+         "description": "Diagnostic tool for host shell inspection"},
+    ]})
+    result = scan_agent_config(path)
+    critical = [f for f in result.findings if f.severity == Severity.CRITICAL]
+    assert critical, "shell_diagnostic must be flagged CRITICAL"
+
+
+def test_token_split_does_not_false_positive_on_db_query():
+    """query_prod_db with 'run a read query' must NOT be shell_exec."""
+    path = write_config({"tools": [
+        {"name": "query_prod_db",
+         "description": "Run a read query against the production replica database"},
+    ]})
+    result = scan_agent_config(path)
+    shell_findings = [f for f in result.findings
+                      if f.severity == Severity.CRITICAL and "shell" in f.title.lower()]
+    assert not shell_findings, "query_prod_db must not be classified as shell execution"
+
+
+def test_replica_keyword_does_not_trigger_code_execution():
+    """'replica' must not match the 'repl' code-execution keyword."""
+    path = write_config({"tools": [
+        {"name": "query_prod_db",
+         "description": "Run a read query against the production replica database"},
+    ]})
+    result = scan_agent_config(path)
+    code_exec = [f for f in result.findings if "code" in f.title.lower() and "execut" in f.title.lower()]
+    assert not code_exec, "replica must not match repl/code_execution keyword"
