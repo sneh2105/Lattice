@@ -36,6 +36,7 @@ from agentscan.scanners.capabilities import (
     CAPABILITY_MAP,
     DANGEROUS_COMBINATIONS,
     detect_capabilities_with_reasons as _detect_capabilities_with_reasons,
+    detect_capabilities_from_body,
     normalise as _normalise,
 )
 
@@ -48,6 +49,14 @@ class ExtractedTool:
     source_file: str
     line_number: int
     decorator_used: str = ""
+    # AST call-site evidence (subprocess.run, eval, boto3.client, ...)
+    # found by walking the function's real body, independent of what
+    # its name/docstring claim. See capabilities.detect_capabilities_from_body.
+    body_capabilities: dict = None  # type: dict[str, str], set post-init below
+
+    def __post_init__(self):
+        if self.body_capabilities is None:
+            self.body_capabilities = {}
 
 
 # Decorator / call patterns that mark a function as an agent tool
@@ -104,6 +113,12 @@ class ToolExtractor(ast.NodeVisitor):
         self.source_file = source_file
         self.tools: list[ExtractedTool] = []
         self._function_docstrings: dict[str, str] = {}
+        # name -> FunctionDef/AsyncFunctionDef node, populated in a pre-pass.
+        # Used to resolve the real function body for registration-style
+        # tools (register_function(my_func), Tool(func=my_func), ...)
+        # so behavioral (AST) detection applies to them too, not just
+        # decorator-based tools.
+        self._function_nodes: dict[str, object] = {}
         # Base classes that mark a class as an agent tool.
         # Seeded with known third-party names; grows as we find internal wrappers.
         self._known_tool_bases: set[str] = {
@@ -132,6 +147,7 @@ class ToolExtractor(ast.NodeVisitor):
                     source_file=self.source_file,
                     line_number=node.lineno,
                     decorator_used=f"@{dec_name}",
+                    body_capabilities=detect_capabilities_from_body(node),
                 ))
                 return
 
@@ -145,11 +161,13 @@ class ToolExtractor(ast.NodeVisitor):
             name = _get_string_kwarg(node, "name")
             description = _get_string_kwarg(node, "description") or ""
             real_docstring = ""
+            resolved_node = None
             if node.args:
                 first_arg = node.args[0]
                 if isinstance(first_arg, ast.Name):
                     name = name or first_arg.id
                     real_docstring = self._function_docstrings.get(first_arg.id, "")
+                    resolved_node = self._function_nodes.get(first_arg.id)
             combined_description = " ".join(filter(None, [description, real_docstring]))
             if name or combined_description:
                 self.tools.append(ExtractedTool(
@@ -159,6 +177,8 @@ class ToolExtractor(ast.NodeVisitor):
                     source_file=self.source_file,
                     line_number=node.lineno,
                     decorator_used="FunctionTool.from_defaults(...)",
+                    body_capabilities=(detect_capabilities_from_body(resolved_node)
+                                       if resolved_node is not None else {}),
                 ))
             self.generic_visit(node)
             return
@@ -172,11 +192,20 @@ class ToolExtractor(ast.NodeVisitor):
             # The description kwarg is often a vague LLM-facing summary --
             # the function's own docstring usually contains the real behaviour detail.
             real_docstring = ""
+            resolved_node = None
             if call_name == "register_function" and node.args:
                 first_arg = node.args[0]
                 if isinstance(first_arg, ast.Name):
                     name = name or first_arg.id
                     real_docstring = self._function_docstrings.get(first_arg.id, "")
+                    resolved_node = self._function_nodes.get(first_arg.id)
+
+            # Tool(name=..., func=my_function, ...) / Tool(name=..., function=my_function, ...)
+            if resolved_node is None:
+                for kw in node.keywords:
+                    if kw.arg in ("func", "function") and isinstance(kw.value, ast.Name):
+                        resolved_node = self._function_nodes.get(kw.value.id)
+                        break
 
             combined_description = " ".join(filter(None, [description, real_docstring]))
 
@@ -188,6 +217,8 @@ class ToolExtractor(ast.NodeVisitor):
                     source_file=self.source_file,
                     line_number=node.lineno,
                     decorator_used=f"{call_name}(...)",
+                    body_capabilities=(detect_capabilities_from_body(resolved_node)
+                                       if resolved_node is not None else {}),
                 ))
         self.generic_visit(node)
 
@@ -347,6 +378,7 @@ def extract_tools_from_file(path: Path) -> list[ExtractedTool]:
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             extractor._function_docstrings[node.name] = _get_docstring(node)
+            extractor._function_nodes[node.name] = node
 
     # Pre-pass 2: collect wrapper/abstract base classes (internal BaseTool subclasses
     # with no name/description attributes -- they are wrappers, not concrete tools).
@@ -545,6 +577,60 @@ def scan_source(target: str) -> ScanResult:
                 mitre_atlas=cap_info["mitre"],
                 cwe=cap_info["cwe"],
                 tags=["tool-permissions", cap, "source-extracted"],
+            ))
+
+        # Behavioral (AST call-site) layer -- independent of name/docstring.
+        # Round-4 red-team finding: name/docstring-only matching is
+        # evadable (boring name, missing docstring, or a non-docstring
+        # f-string all defeat the lexical layer above while the function
+        # still contains a real subprocess.run(..., shell=True) call).
+        # This layer inspects the actual function body and cannot be
+        # evaded the same way. Its capabilities are merged into all_caps
+        # / cap_to_tools so attack-path building still sees them even
+        # when the lexical layer found nothing for this tool -- a scan
+        # must not report a clean bill of health on code that isn't clean.
+        for cap, reason in tool.body_capabilities.items():
+            all_caps.add(cap)
+            cap_to_tools.setdefault(cap, []).append(tool.name)
+            if cap in caps:
+                # Lexical layer already found and reported this capability
+                # for this tool; the behavioral signal corroborates it,
+                # no need for a second finding.
+                continue
+            cap_info = CAPABILITY_MAP[cap]
+            findings.append(Finding(
+                id=f"SRC-BEHAV-{cap.upper()}-{_normalise(tool.name)[:20].upper()}",
+                title=(
+                    f"Tool '{tool.name}' ({tool.source_file}:{tool.line_number}) "
+                    f"{cap_info['description'].lower()} -- undeclared in name/description"
+                ),
+                severity=cap_info["severity"],
+                confidence=ConfidenceLevel.HIGH,  # direct AST evidence of a real call, not a lexical guess
+                scanner="source_scanner",
+                explanation=(
+                    f"Behavioral detection: this tool's name and description do not mention "
+                    f"'{cap}', but its function body contains {reason.replace('AST evidence: ', '')}. "
+                    f"{cap_info['description']}. This mismatch between declared and actual "
+                    "behavior may indicate under-documentation, or an attempt to evade "
+                    "name/description-based review -- verify manually."
+                ),
+                impact=cap_info["impact"],
+                remediation=(
+                    f"Review '{tool.name}' at {tool.source_file}:{tool.line_number}. "
+                    "Its name/description should accurately reflect that it can "
+                    f"{cap_info['description'].lower()}. Scope permissions narrowly, "
+                    "add input validation, consider sandboxing."
+                ),
+                evidence=[Evidence(
+                    source="source_code_ast_body",
+                    field=f"{tool.source_file}:{tool.line_number}",
+                    observed_value={"name": tool.name, "framework": tool.framework_hint},
+                    explanation=reason,
+                )],
+                mitre_atlas=cap_info["mitre"],
+                cwe=cap_info["cwe"],
+                tags=["tool-permissions", cap, "source-extracted", "behavioral-detection",
+                      "name-description-mismatch"],
             ))
 
     # Reuse dangerous combination detection

@@ -23,8 +23,23 @@ from here -- never scanner-specific matching logic.
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from agentscan.models import Severity
+
+# Common Cyrillic/Greek lookalike characters mapped to their Latin
+# equivalents, so a homoglyph-obfuscated docstring/name ("runs a
+# diagnostic" with Cyrillic 'a', U+0430) still matches lexically.
+# This is a defence-in-depth measure alongside NFKC normalisation --
+# NFKC alone does not fold Cyrillic into Latin since they are
+# legitimately distinct scripts, not compatibility variants.
+_CONFUSABLES = {
+    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p",
+    "\u0441": "c", "\u0445": "x", "\u0455": "s", "\u0456": "i",
+    "\u0410": "A", "\u0415": "E", "\u041e": "O", "\u0420": "P",
+    "\u0421": "C", "\u0425": "X",
+}
+_CONFUSABLE_TABLE = str.maketrans(_CONFUSABLES)
 
 # ---------------------------------------------------------------------------
 # Capability taxonomy
@@ -252,7 +267,8 @@ DANGEROUS_COMBINATIONS: list[dict] = [
 
 
 def normalise(name: str) -> str:
-    return name.lower().replace("-", "_").replace(" ", "_")
+    folded = unicodedata.normalize("NFKC", name).translate(_CONFUSABLE_TABLE)
+    return folded.lower().replace("-", "_").replace(" ", "_")
 
 
 # ---------------------------------------------------------------------------
@@ -387,3 +403,133 @@ def detect_capabilities(tool_name: str, tool_def: dict | None = None,
                         extra_text: str = "") -> set[str]:
     """Map a tool definition to a set of capability class names."""
     return set(detect_capabilities_with_reasons(tool_name, tool_def, extra_text))
+
+
+# ---------------------------------------------------------------------------
+# Behavioral (AST call-site) detection layer.
+#
+# Everything above this line matches on the tool's declared NAME and
+# DESCRIPTION. A round-4 red-team review demonstrated that this is
+# trivially evadable: a function named "utility_helper" with the
+# docstring "A generic utility helper for the agent" that contains a
+# real `subprocess.run(cmd, shell=True)` call in its body scores
+# 0/100 with zero findings, because nothing ever inspects what the
+# function actually calls. Three variants were demonstrated:
+#   1. Boring name + boring docstring, dangerous call in the body.
+#   2. No docstring at all (real behavior only in a `#` comment).
+#   3. A fake "docstring" (an f-string literal, which Python does not
+#      recognise as a docstring -- ast.get_docstring() returns None).
+# This is a fundamentally different risk than a keyword miss: it's a
+# clean report on code that is not clean, which is worse than no
+# report because a team reading "risk 0/100" will not think to look
+# further.
+#
+# This layer is intentionally independent of and additive to the
+# lexical layer above: it inspects the actual AST of a function body
+# for calls to known-dangerous stdlib/SDK functions, regardless of
+# what the function's name or docstring claim. It cannot be evaded by
+# renaming, omitting, or lying in the docstring, because it never
+# reads the docstring at all -- only real Call nodes in the body.
+#
+# Scope/limitations (documented, not silently claimed as complete):
+#   - Only catches direct, unresolved-alias calls (subprocess.run(...),
+#     os.system(...)). It does not do inter-procedural analysis, does
+#     not resolve `f = subprocess.run; f(...)`, and does not evaluate
+#     the split-string evasion (`"sh" + "ell_ex" + "ec"`) as a STRING
+#     VALUE -- it matches the actual function *called*, which is a
+#     stronger signal than the string, so that evasion is caught for
+#     a different reason (the real call is still `subprocess.run(...,
+#     shell=True)`, however the *variable* naming it is obfuscated).
+#   - Does not execute or symbolically evaluate code -- pure static
+#     AST pattern matching on call targets.
+# ---------------------------------------------------------------------------
+
+# dotted call path -> (capability, reason fragment)
+# Matched against the joined dotted name of the call target, e.g.
+# "subprocess.run", "os.system", "boto3.client".
+BODY_CALL_SIGNALS: dict[str, tuple[str, str]] = {
+    "subprocess.run": ("shell_exec", "calls subprocess.run(...)"),
+    "subprocess.call": ("shell_exec", "calls subprocess.call(...)"),
+    "subprocess.check_call": ("shell_exec", "calls subprocess.check_call(...)"),
+    "subprocess.check_output": ("shell_exec", "calls subprocess.check_output(...)"),
+    "subprocess.popen": ("shell_exec", "calls subprocess.Popen(...)"),
+    "os.system": ("shell_exec", "calls os.system(...)"),
+    "os.popen": ("shell_exec", "calls os.popen(...)"),
+    "os.execv": ("shell_exec", "calls os.execv(...)"),
+    "os.execve": ("shell_exec", "calls os.execve(...)"),
+    "os.spawnl": ("process_spawn", "calls os.spawnl(...)"),
+    "os.spawnv": ("process_spawn", "calls os.spawnv(...)"),
+    "pty.spawn": ("shell_exec", "calls pty.spawn(...)"),
+    "eval": ("code_execution", "calls eval(...) on runtime data"),
+    "exec": ("code_execution", "calls exec(...) on runtime data"),
+    "compile": ("code_execution", "calls compile(...) to build executable code"),
+    "boto3.client": ("cloud_api", "calls boto3.client(...) (AWS SDK)"),
+    "hvac.client": ("secret_access", "calls hvac.Client(...) (HashiCorp Vault SDK)"),
+    "requests.get": ("network_egress", "calls requests.get(...)"),
+    "requests.post": ("network_egress", "calls requests.post(...)"),
+    "requests.put": ("network_egress", "calls requests.put(...)"),
+    "requests.request": ("network_egress", "calls requests.request(...)"),
+    "httpx.get": ("network_egress", "calls httpx.get(...)"),
+    "httpx.post": ("network_egress", "calls httpx.post(...)"),
+    "urllib.request.urlopen": ("network_egress", "calls urllib.request.urlopen(...)"),
+}
+
+# Second-argument-string signal: some AWS/secret-manager calls only
+# indicate secret_access based on their argument, not the call target
+# alone (boto3.client("s3") is cloud_api but not secret_access;
+# boto3.client("secretsmanager") is both).
+_BOTO_SECRET_SERVICES = {"secretsmanager", "ssm"}
+
+
+def _dotted_call_name(func_node) -> str:
+    """Best-effort dotted name of a Call node's func, e.g. 'subprocess.run'."""
+    import ast
+    parts: list[str] = []
+    node = func_node
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+    return ".".join(reversed(parts))
+
+
+def detect_capabilities_from_body(func_node) -> dict[str, str]:
+    """
+    Walk a function's AST body for calls to known-dangerous stdlib/SDK
+    functions. Independent of and additive to name/description
+    matching -- see module docstring above for why this layer exists.
+
+    func_node: an ast.FunctionDef or ast.AsyncFunctionDef.
+    Returns {capability_name: reason_string}.
+    """
+    import ast
+
+    reasons: dict[str, str] = {}
+    for node in ast.walk(func_node):
+        if not isinstance(node, ast.Call):
+            continue
+        dotted = _dotted_call_name(node.func).lower()
+        if not dotted:
+            continue
+
+        if dotted in BODY_CALL_SIGNALS:
+            cap, reason = BODY_CALL_SIGNALS[dotted]
+            reasons.setdefault(cap, "AST evidence: " + reason)
+            if dotted == "boto3.client" and node.args:
+                first = node.args[0]
+                if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                    if first.value.lower() in _BOTO_SECRET_SERVICES:
+                        reasons.setdefault(
+                            "secret_access",
+                            "AST evidence: calls boto3.client(" + repr(first.value) + ")"
+                        )
+            continue
+
+        # bare eval/exec/compile: dotted name is just "eval" etc (no dots)
+        if dotted in ("eval", "exec", "compile"):
+            cap, reason = BODY_CALL_SIGNALS[dotted]
+            reasons.setdefault(cap, "AST evidence: " + reason)
+            continue
+
+    return reasons
