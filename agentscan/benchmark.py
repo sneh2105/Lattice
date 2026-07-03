@@ -77,14 +77,20 @@ SCENARIOS = [
     ScenarioSpec("vulnerable_agents/08_nocode_dify_export", ["agent", "dify_export.yml"],
                  90, False, "No-code platform export (Dify-style)",
                  "A visual workflow builder export -- no source code, tools nested under model_config.agent_mode"),
+    # min_risk 85: was 90 before v0.2.1, but that score was inflated by a
+    # false positive (the substring "cat" inside "authentication" was
+    # flagging file_read). The honest score for this fixture is 88.
     ScenarioSpec("vulnerable_agents/09_pydantic_ai_llamaindex", ["source", "llamaindex_agent.py"],
-                 90, True, "PydanticAI + LlamaIndex",
+                 85, True, "PydanticAI + LlamaIndex",
                  "LlamaIndex FunctionTool.from_defaults() registering a secret-access and shell-exec tool"),
     ScenarioSpec("vulnerable_agents/10_n8n_flowise_nocode", ["agent", "n8n_workflow.json"],
                  90, True, "n8n workflow (no-code)",
                  "n8n AI Agent node export with shell, database, and credential tools"),
+    # expect_path=True since v0.2.1: shell_exec+secret_access and
+    # shell_exec+database chains were added to DANGEROUS_COMBINATIONS
+    # (shell access is itself an exfiltration channel).
     ScenarioSpec("vulnerable_agents/11_haystack", ["source", "haystack_agent.py"],
-                 90, False, "Haystack agent",
+                 90, True, "Haystack agent",
                  "Haystack Tool() registration pattern with shell, database, and vault tools"),
 ]
 

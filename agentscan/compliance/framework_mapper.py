@@ -322,12 +322,21 @@ def map_findings_to_controls(result: ScanResult) -> ComplianceReport:
         priority_gaps.append("Run the DPIA module to generate the required Data Protection Impact Assessment")
         priority_gaps.append("Generate audit report for board sign-off (RBI MRM 2026 requirement)")
 
+    # Derive the covered-frameworks list from the framework names that
+    # actually appear in CONTROL_LIBRARY. Round 3 QA: the header
+    # previously hardcoded a list ("DPDP Act 2023", "RBI AI-ACT&RS") that
+    # diverged from the names cited in the per-finding control table
+    # ("DPDP Rules 2025", "RBI Cybersecurity Framework"). Deriving both
+    # from the same source keeps a compliance artifact internally
+    # consistent -- exactly the property an audit reviewer checks.
+    covered: set[str] = set()
+    for entries in CONTROL_LIBRARY.values():
+        for entry in entries:
+            covered.add(entry["framework"])
+
     return ComplianceReport(
         target=result.target,
-        frameworks_covered=[
-            "RBI AI-ACT&RS", "RBI MRM 2026", "DPDP Act 2023",
-            "SEBI CSCRF", "ISO 42001", "EU AI Act", "NIST AI RMF", "SOC 2"
-        ],
+        frameworks_covered=sorted(covered),
         mappings=mappings,
         control_summary={fw: len(ids) for fw, ids in framework_control_counts.items()},
         overall_posture=posture,

@@ -32,8 +32,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from agentscan.models import ScanResult, Finding, Evidence, Severity, ConfidenceLevel
-from agentscan.scanners.agent_scanner import (
-    CAPABILITY_MAP, DANGEROUS_COMBINATIONS, _normalise, _detect_capabilities,
+from agentscan.scanners.capabilities import (
+    CAPABILITY_MAP,
+    DANGEROUS_COMBINATIONS,
+    detect_capabilities_with_reasons as _detect_capabilities_with_reasons,
+    normalise as _normalise,
 )
 
 
@@ -508,7 +511,8 @@ def scan_source(target: str) -> ScanResult:
 
     for tool in tools:
         framework_counts[tool.framework_hint] = framework_counts.get(tool.framework_hint, 0) + 1
-        caps = _detect_capabilities(tool.name, {"description": tool.description})
+        cap_reasons = _detect_capabilities_with_reasons(tool.name, {"description": tool.description})
+        caps = set(cap_reasons)
 
         for cap in caps:
             all_caps.add(cap)
@@ -536,7 +540,7 @@ def scan_source(target: str) -> ScanResult:
                     field=f"{tool.source_file}:{tool.line_number}",
                     observed_value={"name": tool.name, "decorator": tool.decorator_used,
                                    "framework": tool.framework_hint},
-                    explanation=f"Tool name/docstring matched capability '{cap}'",
+                    explanation=f"Capability '{cap}' assigned because: {cap_reasons[cap]}",
                 )],
                 mitre_atlas=cap_info["mitre"],
                 cwe=cap_info["cwe"],

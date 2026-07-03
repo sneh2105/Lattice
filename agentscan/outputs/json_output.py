@@ -2,6 +2,7 @@
 """JSON and SARIF output renderers for CI/CD integration."""
 
 from __future__ import annotations
+from agentscan import __version__
 import json
 from agentscan.models import Finding, ScanResult
 
@@ -9,7 +10,7 @@ from agentscan.models import Finding, ScanResult
 def to_dict(result: ScanResult) -> dict:
     """Serialise a ScanResult to a plain dict (JSON-serialisable)."""
     return {
-        "agentscan_version": "0.2.0",
+        "agentscan_version": __version__,
         "target": result.target,
         "scanner_type": result.scanner_type,
         "risk_score": result.risk_score(),
@@ -110,7 +111,7 @@ def to_sarif(result: ScanResult) -> str:
             "tool": {
                 "driver": {
                     "name": "AgentScan",
-                    "version": "0.2.0",
+                    "version": __version__,
                     "informationUri": "https://github.com/sneh2105/agentscan",
                     "rules": rules,
                 }

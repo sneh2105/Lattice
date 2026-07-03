@@ -5,6 +5,7 @@ Designed to be screenshot-worthy and shareable.
 """
 
 from __future__ import annotations
+from agentscan import __version__
 import sys
 import agentscan._compat  # force UTF-8 on Windows
 from agentscan._compat import (
@@ -194,7 +195,7 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
         lines.append("")
 
     # -- Footer -----------------------------------------------------------
-    lines.append(_col(DIM, "  AgentScan v0.2.0 - github.com/sneh2105/agentscan"))
+    lines.append(_col(DIM, "  AgentScan v" + __version__ + " - github.com/sneh2105/agentscan"))
     lines.append("")
     return "\n".join(lines)
 

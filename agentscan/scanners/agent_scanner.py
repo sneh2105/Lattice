@@ -26,222 +26,20 @@ from agentscan.models import (
 
 
 # ---------------------------------------------------------------------------
-# Capability taxonomy
-# Capabilities are grouped by the access class they grant.
-# The scanner maps tool names / keywords to these classes.
+# Capability taxonomy and detection: imported from the canonical module.
+# agentscan.scanners.capabilities is the SINGLE SOURCE OF TRUTH -- do not
+# define keyword lists here. These names are re-exported for backward
+# compatibility (source_scanner and tests import them from this module).
 # ---------------------------------------------------------------------------
-
-CAPABILITY_MAP: dict[str, dict] = {
-    "shell_exec": {
-        "keywords": ["shell_exec", "run_shell", "run_command", "bash", "subprocess", "os.system", "exec_host", "exec_command", "shell_command", "terminal", "execute_shell", "execute_command", "execute_script", "run_code", "exec_code", "run_script"],
-        "severity": Severity.CRITICAL,
-        "description": "Can execute arbitrary operating system commands",
-        "impact": "Full host compromise: data exfiltration, persistence, lateral movement",
-        "mitre": ["AML.T0017", "AML.T0048"],
-        "cwe": ["CWE-78"],
-    },
-    "file_write": {
-        "keywords": ["file_write", "write_file", "create_file", "filesystem", "disk_write", "save_file"],
-        "severity": Severity.HIGH,
-        "description": "Can write to the filesystem",
-        "impact": "Malicious file creation, config tampering, persistence",
-        "mitre": ["AML.T0048"],
-        "cwe": ["CWE-73"],
-    },
-    "file_read": {
-        "keywords": ["file_read", "read_file", "filesystem", "disk_read", "open_file", "cat"],
-        "severity": Severity.MEDIUM,
-        "description": "Can read arbitrary files from the filesystem",
-        "impact": "Credential theft, source code exfiltration, config exposure",
-        "mitre": ["AML.T0051"],
-        "cwe": ["CWE-22"],
-    },
-    "network_egress": {
-        "keywords": ["http", "request", "fetch", "web", "browser", "curl", "network", "internet", "url"],
-        "severity": Severity.MEDIUM,
-        "description": "Can make outbound network requests",
-        "impact": "Data exfiltration, C2 communication, SSRF",
-        "mitre": ["AML.T0040"],
-        "cwe": ["CWE-918"],
-    },
-    "secret_access": {
-        "keywords": ["secret", "vault", "credential", "api_key", "env", "ssm", "aws_secrets", "keychain"],
-        "severity": Severity.CRITICAL,
-        "description": "Can access secrets, credentials, or API keys",
-        "impact": "Credential theft enabling further account compromise",
-        "mitre": ["AML.T0051"],
-        "cwe": ["CWE-522"],
-    },
-    "database": {
-        "keywords": ["database", "db", "sql", "query", "postgres", "mysql", "mongo", "redis", "dynamo"],
-        "severity": Severity.HIGH,
-        "description": "Can query or modify databases",
-        "impact": "Data exfiltration, data manipulation, injection attacks",
-        "mitre": ["AML.T0048"],
-        "cwe": ["CWE-89"],
-    },
-    "email_send": {
-        "keywords": ["email", "send_mail", "smtp", "sendgrid", "ses", "mail"],
-        "severity": Severity.MEDIUM,
-        "description": "Can send emails",
-        "impact": "Phishing, social engineering, data exfiltration via email",
-        "mitre": ["AML.T0040"],
-        "cwe": [],
-    },
-    "financial_transaction": {
-        "keywords": ["wire_transfer", "wire transfer", "transfer_funds",
-                      "initiate_transfer", "initiate_payment", "process_payment",
-                      "issue_refund", "process_refund", "refund_payment",
-                      "charge_card", "charge_customer", "stripe", "ach_transfer",
-                      "disburse", "payout", "send_money", "move_money"],
-        "severity": Severity.CRITICAL,
-        "description": "Can initiate financial transactions or move money",
-        "impact": "Direct financial loss via unauthorised or injected transactions",
-        "mitre": ["AML.T0048"],
-        "cwe": ["CWE-840"],
-    },
-    "code_execution": {
-        "keywords": ["python_repl", "code_interpreter", "eval_code", "jupyter", "notebook", "ipython"],
-        "severity": Severity.CRITICAL,
-        "description": "Can execute arbitrary code in a runtime",
-        "impact": "Full arbitrary code execution within agent context",
-        "mitre": ["AML.T0017"],
-        "cwe": ["CWE-95"],
-    },
-    "cloud_api": {
-        "keywords": ["aws", "gcp", "azure", "s3", "ec2", "iam", "lambda", "cloud"],
-        "severity": Severity.HIGH,
-        "description": "Can call cloud provider APIs",
-        "impact": "Cloud resource manipulation, data access, privilege escalation",
-        "mitre": ["AML.T0048"],
-        "cwe": [],
-    },
-}
-
-# Dangerous capability combinations that together form attack paths
-DANGEROUS_COMBINATIONS: list[dict] = [
-    {
-        "caps": {"secret_access", "network_egress"},
-        "title": "Credential exfiltration path",
-        "severity": Severity.CRITICAL,
-        "description": (
-            "The agent can read secrets AND make outbound network requests. "
-            "This is a complete exfiltration path: an attacker who controls the agent's "
-            "prompt (via prompt injection or malicious tool output) can instruct it to "
-            "read credentials and POST them to an attacker-controlled server."
-        ),
-        "entry": "Prompt injection via user input or malicious tool output",
-        "impact": "AWS/cloud credentials, API keys, or secrets exfiltrated to attacker",
-        "mitre": ["AML.T0051", "AML.T0040"],
-    },
-    {
-        "caps": {"shell_exec", "network_egress"},
-        "title": "Remote code execution + exfiltration path",
-        "severity": Severity.CRITICAL,
-        "description": (
-            "The agent can execute shell commands AND make network requests. "
-            "Combined, this enables full reverse shell, C2 beaconing, or data exfiltration."
-        ),
-        "entry": "Prompt injection or malicious MCP tool response",
-        "impact": "Host compromise with persistent attacker foothold",
-        "mitre": ["AML.T0017", "AML.T0040"],
-    },
-    {
-        "caps": {"file_write", "code_execution"},
-        "title": "Persistent malware drop path",
-        "severity": Severity.CRITICAL,
-        "description": (
-            "The agent can write files AND execute code. An attacker can instruct it to "
-            "write malicious scripts and then execute them, achieving persistent compromise."
-        ),
-        "entry": "Malicious prompt or tool output",
-        "impact": "Persistent backdoor or malware dropped on host",
-        "mitre": ["AML.T0017", "AML.T0048"],
-    },
-    {
-        "caps": {"cloud_api", "secret_access"},
-        "title": "Cloud privilege escalation path",
-        "severity": Severity.CRITICAL,
-        "description": (
-            "The agent can access cloud APIs AND read secrets. This enables privilege "
-            "escalation: steal IAM credentials, then use them to access other cloud resources."
-        ),
-        "entry": "Prompt injection via user message",
-        "impact": "Cloud account takeover via stolen IAM credentials",
-        "mitre": ["AML.T0051", "AML.T0048"],
-    },
-    {
-        "caps": {"database", "network_egress"},
-        "title": "Database exfiltration path",
-        "severity": Severity.HIGH,
-        "description": (
-            "The agent can query databases AND make outbound requests. "
-            "An attacker can instruct it to dump sensitive tables and exfiltrate the data."
-        ),
-        "entry": "Prompt injection via user-supplied query",
-        "impact": "Full database contents exfiltrated to attacker",
-        "mitre": ["AML.T0051", "AML.T0040"],
-    },
-    {
-        "caps": {"financial_transaction", "database"},
-        "title": "Fraudulent transaction path",
-        "severity": Severity.CRITICAL,
-        "description": (
-            "The agent can both query records AND initiate financial transactions. "
-            "An attacker can instruct it to look up account/payment details from the "
-            "database and then trigger an unauthorised transfer using injected values."
-        ),
-        "entry": "Prompt injection via user message or malicious tool output",
-        "impact": "Direct financial loss via fraudulent or unauthorised transactions",
-        "mitre": ["AML.T0051", "AML.T0048"],
-    },
-]
-
-
-def _normalise(name: str) -> str:
-    return name.lower().replace("-", "_").replace(" ", "_")
-
-
-_SHELL_VERB_TOKENS = {"run", "exec", "execute", "shell", "bash", "invoke"}
-_SHELL_TARGET_TOKENS = {"script", "command", "shell", "bash", "cmd",
-                        "terminal", "process", "subprocess"}
-
-
-def _has_shell_token_pair(text: str) -> bool:
-    """
-    Return True if text contains both a shell-verb token and a
-    shell-target token when split on underscores/spaces.
-    Catches run_remediation_script, execute_patch_script, shell_diagnostic
-    without re-introducing bare run/execute false positives on DB tools.
-    """
-    tokens = set(text.lower().replace("-", "_").replace(" ", "_").split("_"))
-    tokens.update(text.lower().split())
-    return bool(tokens & _SHELL_VERB_TOKENS) and bool(tokens & _SHELL_TARGET_TOKENS)
-
-
-def _detect_capabilities(tool_name: str, tool_def: dict) -> set[str]:
-    """Map a tool definition to a set of capability class names."""
-    detected: set[str] = set()
-    haystack = _normalise(tool_name)
-    description = ""
-    # Also check description and any 'permissions' field
-    if isinstance(tool_def, dict):
-        description = tool_def.get("description", "")
-        haystack += " " + _normalise(description)
-        haystack += " " + _normalise(str(tool_def.get("permissions", "")))
-        haystack += " " + _normalise(str(tool_def.get("type", "")))
-
-    for cap_name, cap in CAPABILITY_MAP.items():
-        if any(kw in haystack for kw in cap["keywords"]):
-            detected.add(cap_name)
-
-    # Stage 2: token co-occurrence for shell_exec.
-    # Only applies when not already detected via keyword match.
-    if "shell_exec" not in detected:
-        if _has_shell_token_pair(tool_name + " " + description):
-            detected.add("shell_exec")
-
-    return detected
+from agentscan.scanners.capabilities import (  # noqa: F401  (re-exported)
+    CAPABILITY_MAP,
+    DANGEROUS_COMBINATIONS,
+    detect_capabilities as _detect_capabilities,
+    detect_capabilities_with_reasons as _detect_capabilities_with_reasons,
+    normalise as _normalise,
+    shell_token_reason as _shell_token_reason,
+    _has_shell_token_pair,
+)
 
 
 def _normalise_tool_item(item) -> dict | None:
@@ -436,7 +234,8 @@ def scan_agent_config(path: str | Path) -> ScanResult:
 
     for tool in tools:
         tool_name = tool.get("name", tool.get("type", "unnamed_tool"))
-        caps = _detect_capabilities(tool_name, tool)
+        cap_reasons = _detect_capabilities_with_reasons(tool_name, tool)
+        caps = set(cap_reasons)
         all_caps |= caps
 
         for cap in caps:
@@ -466,7 +265,7 @@ def scan_agent_config(path: str | Path) -> ScanResult:
                     source="tool_definition",
                     field=f"tools[name={tool_name!r}]",
                     observed_value=tool_name,
-                    explanation=f"Tool name matched keywords for capability '{cap}': {cap_info['keywords'][:3]}"
+                    explanation=f"Capability '{cap}' assigned because: {cap_reasons[cap]}"
                 )],
                 mitre_atlas=cap_info["mitre"],
                 cwe=cap_info["cwe"],

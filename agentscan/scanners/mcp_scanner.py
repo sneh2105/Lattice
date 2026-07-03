@@ -24,11 +24,14 @@ from agentscan.models import (
     AttackPath, ConfidenceLevel, Evidence, Finding, ScanResult, Severity
 )
 
-# Tool capability patterns for MCP tool definitions
+# Presentation metadata (title/explanation/remediation) per capability.
+# MATCHING is delegated to agentscan.scanners.capabilities -- the canonical
+# taxonomy shared by every scanner. Do not add keyword lists back here
+# (round 3 QA: duplicated keyword lists drift and re-introduce fixed bugs).
 MCP_DANGEROUS_TOOL_PATTERNS: list[dict] = [
     {
         "id": "MCP-SHELL",
-        "keywords": ["shell_exec", "bash", "exec_host", "exec_command", "terminal", "subprocess", "run_shell", "run_command", "run_script", "shell_command", "execute_shell", "execute_command"],
+        "cap": "shell_exec",
         "severity": Severity.CRITICAL,
         "title": "MCP tool exposes shell execution",
         "explanation": (
@@ -46,7 +49,7 @@ MCP_DANGEROUS_TOOL_PATTERNS: list[dict] = [
     },
     {
         "id": "MCP-SECRETS",
-        "keywords": ["secret", "credential", "api_key", "token", "vault", "ssm", "password", "keychain"],
+        "cap": "secret_access",
         "severity": Severity.CRITICAL,
         "title": "MCP tool can access secrets or credentials",
         "explanation": (
@@ -64,7 +67,7 @@ MCP_DANGEROUS_TOOL_PATTERNS: list[dict] = [
     },
     {
         "id": "MCP-FILE-WRITE",
-        "keywords": ["write_file", "file_write", "create_file", "delete_file", "move_file", "filesystem"],
+        "cap": "file_write",
         "severity": Severity.HIGH,
         "title": "MCP tool has filesystem write access",
         "explanation": (
@@ -77,7 +80,7 @@ MCP_DANGEROUS_TOOL_PATTERNS: list[dict] = [
     },
     {
         "id": "MCP-NET",
-        "keywords": ["http", "fetch", "request", "curl", "browse", "web", "url", "network"],
+        "cap": "network_egress",
         "severity": Severity.MEDIUM,
         "title": "MCP tool can make network requests",
         "explanation": (
@@ -91,8 +94,7 @@ MCP_DANGEROUS_TOOL_PATTERNS: list[dict] = [
     },
     {
         "id": "MCP-DATABASE",
-        "keywords": ["query_database", "query_db", "database", "sql_query", "run_query",
-                     "db_query", "execute_query", "postgres", "mysql", "mongo", "dynamo"],
+        "cap": "database",
         "severity": Severity.HIGH,
         "title": "MCP tool has database access",
         "explanation": (
@@ -109,7 +111,7 @@ MCP_DANGEROUS_TOOL_PATTERNS: list[dict] = [
     },
     {
         "id": "MCP-CODE-EXEC",
-        "keywords": ["eval", "python_repl", "code", "interpret", "execute_code", "run_code", "notebook"],
+        "cap": "code_execution",
         "severity": Severity.CRITICAL,
         "title": "MCP tool executes arbitrary code",
         "explanation": "This MCP tool can evaluate or execute code, enabling arbitrary code execution within the agent's runtime.",
@@ -118,6 +120,12 @@ MCP_DANGEROUS_TOOL_PATTERNS: list[dict] = [
         "mitre": ["AML.T0017"],
     },
 ]
+
+
+from agentscan.scanners.capabilities import (
+    detect_capabilities,
+    detect_capabilities_with_reasons,
+)
 
 
 def _normalise(s: str) -> str:
@@ -129,16 +137,19 @@ def _analyse_tool(tool: dict) -> list[Finding]:
     findings = []
     tool_name = tool.get("name", "unnamed")
     description = tool.get("description", "")
-    haystack = _normalise(tool_name) + " " + _normalise(description)
+    schema = tool.get("inputSchema", tool.get("input_schema", {}))
+    schema_str = json.dumps(schema).lower() if schema else ""
+
+    # Canonical capability detection -- shared with every other scanner.
+    cap_reasons = detect_capabilities_with_reasons(
+        tool_name, {"description": description}, extra_text=schema_str
+    )
+    name_only_caps = detect_capabilities(tool_name)
 
     for pattern in MCP_DANGEROUS_TOOL_PATTERNS:
-        if any(kw in haystack for kw in pattern["keywords"]):
-            # Check input schema for additional signals
-            schema = tool.get("inputSchema", tool.get("input_schema", {}))
-            schema_str = json.dumps(schema).lower() if schema else ""
-
-            # Require at least one keyword match in name+description OR schema
-            confidence = ConfidenceLevel.HIGH if any(kw in haystack for kw in pattern["keywords"][:2]) else ConfidenceLevel.MEDIUM
+        if pattern["cap"] in cap_reasons:
+            confidence = (ConfidenceLevel.HIGH if pattern["cap"] in name_only_caps
+                          else ConfidenceLevel.MEDIUM)
 
             findings.append(Finding(
                 id=f"{pattern['id']}-{_normalise(tool_name)[:20].upper()}",
@@ -154,7 +165,7 @@ def _analyse_tool(tool: dict) -> list[Finding]:
                         source="mcp_tool_definition",
                         field=f"tools[name={tool_name!r}]",
                         observed_value={"name": tool_name, "description": description[:200]},
-                        explanation=f"Tool name/description matched keywords: {[k for k in pattern['keywords'] if k in haystack]}"
+                        explanation=f"Capability '{pattern['cap']}' assigned because: {cap_reasons[pattern['cap']]}"
                     )
                 ],
                 mitre_atlas=pattern["mitre"],

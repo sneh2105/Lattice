@@ -8,6 +8,7 @@ agentscan compliance audit <scan_target>    Generate full PDF audit report
 """
 
 from __future__ import annotations
+from agentscan import __version__
 import argparse
 import json
 import sys
@@ -73,7 +74,7 @@ def cmd_map(args):
             mand = _col(RED, "mandatory") if ctrl.severity == "mandatory" else _col(BLUE, "recommended")
             print(f"    {mand}  {ctrl.framework}  {_col(ORANGE, ctrl.control_id)}  {ctrl.control_name}")
 
-    print(f"\n  {_col(DIM, 'AgentScan v0.2.0 - github.com/sneh2105/agentscan')}\n")
+    print("\n  " + _col(DIM, "AgentScan v" + __version__ + " - github.com/sneh2105/agentscan") + "\n")
 
 
 def cmd_dpia(args):

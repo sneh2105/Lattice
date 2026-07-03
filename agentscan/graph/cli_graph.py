@@ -9,6 +9,7 @@ Graph and MCP CLI commands.
 """
 
 from __future__ import annotations
+from agentscan import __version__
 import agentscan._compat  # force UTF-8 on Windows
 import json
 import sys
@@ -315,7 +316,8 @@ def _render_chain_report(report: MCPTrustChainReport, args):
         Path(args.export_html).write_text(html, encoding="utf-8")
         print(f"  {_col(GREEN, '[OK]')} Interactive graph -> {args.export_html}")
 
-    print(f"\n  {_col(DIM, f'AgentScan v0.2.0 - scan took {report.scan_duration_ms}ms')}\n")
+    footer = "AgentScan v" + __version__ + " - scan took " + str(report.scan_duration_ms) + "ms"
+    print("\n  " + _col(DIM, footer) + "\n")
 
 
 def add_graph_parser(subparsers):

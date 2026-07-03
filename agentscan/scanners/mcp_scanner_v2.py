@@ -44,37 +44,46 @@ KNOWN_RISKY_SERVERS: dict[str, str] = {
     # populated from threat intel -- placeholder
 }
 
-# Tool capability taxonomy (extended from v1)
+# ---------------------------------------------------------------------------
+# Graph/severity metadata per capability. MATCHING is NOT done here --
+# it is delegated to agentscan.scanners.capabilities (the canonical
+# taxonomy). Round 3 QA found this file carried a third, drifted copy of
+# the keyword lists, silently re-introducing false positives already
+# fixed elsewhere (bare "run" flagged query_prod_db as shell_exec; the
+# substring "repl" flagged "production replica database" as
+# code_execution). Keep only presentation/graph metadata here, keyed by
+# canonical capability name.
+# ---------------------------------------------------------------------------
 MCP_TOOL_CAPS: list[dict] = [
-    {"id": "SHELL",   "keywords": ["shell","bash","exec","terminal","command","subprocess","run","cmd"],
-     "severity": Severity.CRITICAL, "cap": "shell_exec",
+    {"id": "SHELL",    "cap": "shell_exec",
+     "severity": Severity.CRITICAL,
      "edge": EdgeType.EXECUTES, "target": "shell_process", "mitre": ["AML.T0017","AML.T0048"]},
-    {"id": "SECRETS", "keywords": ["secret","credential","api_key","token","vault","ssm","password","keychain","auth"],
-     "severity": Severity.CRITICAL, "cap": "secret_access",
+    {"id": "SECRETS",  "cap": "secret_access",
+     "severity": Severity.CRITICAL,
      "edge": EdgeType.READS, "target": "aws_credentials", "mitre": ["AML.T0051"]},
-    {"id": "FILEWRITE","keywords": ["write_file","file_write","create_file","delete_file","move_file","save_file","disk_write"],
-     "severity": Severity.HIGH, "cap": "file_write",
+    {"id": "FILEWRITE","cap": "file_write",
+     "severity": Severity.HIGH,
      "edge": EdgeType.WRITES, "target": "filesystem", "mitre": ["AML.T0048"]},
-    {"id": "FILEREAD", "keywords": ["read_file","file_read","open_file","cat","disk_read","filesystem"],
-     "severity": Severity.MEDIUM, "cap": "file_read",
+    {"id": "FILEREAD", "cap": "file_read",
+     "severity": Severity.MEDIUM,
      "edge": EdgeType.READS, "target": "filesystem", "mitre": ["AML.T0051"]},
-    {"id": "NET",     "keywords": ["http","fetch","request","curl","browse","web","url","network","internet"],
-     "severity": Severity.MEDIUM, "cap": "network_egress",
+    {"id": "NET",      "cap": "network_egress",
+     "severity": Severity.MEDIUM,
      "edge": EdgeType.EXFILTRATES, "target": "external_network", "mitre": ["AML.T0040"]},
-    {"id": "CODE",    "keywords": ["eval","python_repl","code","interpret","execute_code","run_code","notebook","repl"],
-     "severity": Severity.CRITICAL, "cap": "code_execution",
+    {"id": "CODE",     "cap": "code_execution",
+     "severity": Severity.CRITICAL,
      "edge": EdgeType.EXECUTES, "target": "shell_process", "mitre": ["AML.T0017"]},
-    {"id": "DB",      "keywords": ["database","db","sql","query","postgres","mysql","mongo","redis","dynamo","sqlite"],
-     "severity": Severity.HIGH, "cap": "database",
+    {"id": "DB",       "cap": "database",
+     "severity": Severity.HIGH,
      "edge": EdgeType.READS, "target": "database_contents", "mitre": ["AML.T0051"]},
-    {"id": "CLOUD",   "keywords": ["aws","gcp","azure","s3","ec2","iam","lambda","cloud","bucket"],
-     "severity": Severity.HIGH, "cap": "cloud_api",
+    {"id": "CLOUD",    "cap": "cloud_api",
+     "severity": Severity.HIGH,
      "edge": EdgeType.ESCALATES, "target": "aws_credentials", "mitre": ["AML.T0048"]},
-    {"id": "EMAIL",   "keywords": ["email","send_mail","smtp","sendgrid","ses","mail","gmail"],
-     "severity": Severity.MEDIUM, "cap": "email_send",
+    {"id": "EMAIL",    "cap": "email_send",
+     "severity": Severity.MEDIUM,
      "edge": EdgeType.EXFILTRATES, "target": "external_network", "mitre": ["AML.T0040"]},
-    {"id": "SPAWN",   "keywords": ["spawn","fork","subprocess","create_process","agent","child"],
-     "severity": Severity.CRITICAL, "cap": "process_spawn",
+    {"id": "SPAWN",    "cap": "process_spawn",
+     "severity": Severity.CRITICAL,
      "edge": EdgeType.EXECUTES, "target": "shell_process", "mitre": ["AML.T0017","AML.T0048"]},
 ]
 
@@ -111,6 +120,12 @@ class MCPServerProfile:
     graph: AttackGraph
 
 
+from agentscan.scanners.capabilities import (
+    detect_capabilities,
+    detect_capabilities_with_reasons,
+)
+
+
 def _normalise(s: str) -> str:
     return s.lower().replace("-", "_").replace(" ", "_")
 
@@ -130,12 +145,13 @@ def _analyse_tool(tool: dict, server_id: str) -> MCPToolAnalysis:
     desc = tool.get("description", "")
     schema = tool.get("inputSchema", tool.get("input_schema", {}))
     schema_str = json.dumps(schema).lower() if schema else ""
-    haystack = _normalise(name) + " " + _normalise(desc) + " " + schema_str
 
-    matched_caps: list[dict] = []
-    for cap in MCP_TOOL_CAPS:
-        if any(kw in haystack for kw in cap["keywords"]):
-            matched_caps.append(cap)
+    # Canonical capability detection -- shared with every other scanner.
+    cap_reasons = detect_capabilities_with_reasons(
+        name, {"description": desc}, extra_text=schema_str
+    )
+    name_only_caps = detect_capabilities(name)
+    matched_caps: list[dict] = [c for c in MCP_TOOL_CAPS if c["cap"] in cap_reasons]
 
     if not matched_caps:
         return MCPToolAnalysis(
@@ -158,16 +174,16 @@ def _analyse_tool(tool: dict, server_id: str) -> MCPToolAnalysis:
     tool_node_id = f"tool_{server_id}_{_normalise(name)[:20]}"
 
     for cap in matched_caps:
-        matched_kws = [kw for kw in cap["keywords"] if kw in haystack]
+        reason = cap_reasons[cap["cap"]]
         findings.append(Finding(
             id=f"MCP2-{cap['id']}-{_normalise(name)[:20].upper()}",
             title=f"Tool '{name}' -- {cap['cap'].replace('_', ' ')} capability",
             severity=cap["severity"],
-            confidence=ConfidenceLevel.HIGH if any(kw in _normalise(name) for kw in cap["keywords"][:3]) else ConfidenceLevel.MEDIUM,
+            confidence=ConfidenceLevel.HIGH if cap["cap"] in name_only_caps else ConfidenceLevel.MEDIUM,
             scanner="mcp_scanner_v2",
             explanation=(
-                f"Tool '{name}' in this MCP server provides {cap['cap'].replace('_',' ')} capability. "
-                f"Matched keywords: {matched_kws[:3]}. "
+                f"Tool '{name}' in this MCP server provides {cap['cap'].replace('_',' ')} capability "
+                f"({reason}). "
                 f"Any agent connected to this server can invoke this tool."
             ),
             impact=f"Agent can {cap['cap'].replace('_', ' ')} via '{name}'",
@@ -179,7 +195,7 @@ def _analyse_tool(tool: dict, server_id: str) -> MCPToolAnalysis:
                 source="mcp_tool_definition",
                 field=f"tools[name={name!r}]",
                 observed_value={"name": name, "description": desc[:150]},
-                explanation=f"Keywords matched: {matched_kws[:5]}",
+                explanation=f"Capability '{cap['cap']}' assigned because: {reason}",
             )],
             mitre_atlas=cap["mitre"],
             tags=["mcp-tool", cap["id"].lower(), cap["cap"]],
