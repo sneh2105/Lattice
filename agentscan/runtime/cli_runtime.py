@@ -21,9 +21,89 @@ def _risk_col(score: int) -> str:
     return GREEN
 
 
+# Keys that plausibly ARE the event payload if they appear directly on
+# the event dict rather than nested under "data". Used as a fallback
+# when "data" is missing/empty, so a session log that puts "tool"/"args"/
+# "content" etc. at the top level (a schema this tool doesn't natively
+# expect, but that's a completely reasonable shape for a team's own
+# logging pipeline to use) still gets its payload recovered instead of
+# silently parsing to an empty dict.
+_EVENT_PAYLOAD_FALLBACK_KEYS = {
+    "tool", "tool_name", "args", "arguments", "content", "message",
+    "messages", "prompt", "model", "url", "method", "path", "mode",
+    "name", "query", "command", "value",
+}
+_EVENT_META_KEYS = {"type", "timestamp_ms", "id", "session_id", "agent_id"}
+
+
+def _load_session_events(raw, events_data) -> tuple[list, int]:
+    """
+    Parse a session's raw event dicts into RuntimeEvent objects.
+
+    Returns (events, unresolved_count). unresolved_count is the number
+    of events where neither the expected "data" key nor any recognisable
+    top-level payload key could be found -- i.e. events whose shape this
+    tool genuinely could not interpret, as distinct from events that
+    parsed fine and simply had no risk signal. A round-6 QA finding: a
+    session log using top-level tool/args/content keys instead of a
+    nested "data" object previously parsed to empty data on every event
+    with no indication anything was wrong, reporting "0 critical
+    findings" indistinguishable from a genuinely clean session.
+    """
+    from agentscan.runtime.events import RuntimeEvent, EventType
+
+    events = []
+    unresolved = 0
+    for ed in events_data:
+        if not isinstance(ed, dict):
+            unresolved += 1
+            continue
+        already_flagged = False
+        data = ed.get("data")
+        if not data:
+            # Fallback: recover payload from top-level keys not already
+            # accounted for as event metadata.
+            fallback = {k: v for k, v in ed.items()
+                       if k in _EVENT_PAYLOAD_FALLBACK_KEYS}
+            if fallback:
+                data = fallback
+            else:
+                data = {}
+                # Only genuinely unresolved if there was nothing at all
+                # to recover AND no explicit (even empty) "data" key --
+                # an event that legitimately has no payload (e.g.
+                # agent_start) is not a schema mismatch.
+                if "data" not in ed and not (set(ed.keys()) - _EVENT_META_KEYS):
+                    pass  # truly empty event, not a mismatch
+                elif "data" not in ed:
+                    unresolved += 1
+                    already_flagged = True
+        try:
+            events.append(RuntimeEvent(
+                type=EventType(ed.get("type", "decision")),
+                timestamp_ms=ed.get("timestamp_ms", 0),
+                data=data,
+            ))
+        except Exception:
+            if not already_flagged:
+                unresolved += 1
+
+    return events, unresolved
+
+
+def _print_unresolved_warning(unresolved: int, total: int):
+    if unresolved:
+        print(_col(ORANGE,
+            f"  [!] {unresolved}/{total} event(s) could not be parsed under the "
+            "expected session schema (looked for a nested 'data' object or "
+            "recognised top-level payload keys). Results below may be "
+            "incomplete -- this is NOT the same as a clean scan."))
+        print()
+
+
 def cmd_runtime_analyse(args):
     """Analyse a runtime event log (JSONL or JSON array)."""
-    from agentscan.runtime.events import AgentSession, RuntimeEvent, EventType
+    from agentscan.runtime.events import AgentSession
     from agentscan.runtime.analyser import RuntimeAnalyser
 
     path = Path(args.session_file)
@@ -37,17 +117,12 @@ def cmd_runtime_analyse(args):
         session_id=raw.get("session_id", "s1") if isinstance(raw, dict) else "s1",
         agent_id=raw.get("agent_id", "agent") if isinstance(raw, dict) else "agent",
     )
-    for ed in events_data:
-        try:
-            session.add_event(RuntimeEvent(
-                type=EventType(ed.get("type", "decision")),
-                timestamp_ms=ed.get("timestamp_ms", 0),
-                data=ed.get("data", {}),
-            ))
-        except Exception:
-            pass
+    events, unresolved = _load_session_events(raw, events_data)
+    for e in events:
+        session.add_event(e)
 
     report = RuntimeAnalyser().analyse(session)
+    _print_unresolved_warning(unresolved, len(events_data))
     _render_runtime(report, args)
 
 
@@ -102,7 +177,7 @@ def cmd_prompt_flow(args):
     analyser = PromptFlowAnalyser()
 
     if args.session_file:
-        from agentscan.runtime.events import AgentSession, RuntimeEvent, EventType
+        from agentscan.runtime.events import AgentSession
         path = Path(args.session_file)
         raw = json.loads(path.read_text())
         events_data = raw if isinstance(raw, list) else raw.get("events", [])
@@ -110,15 +185,10 @@ def cmd_prompt_flow(args):
             session_id=raw.get("session_id","s1") if isinstance(raw, dict) else "s1",
             agent_id=raw.get("agent_id","agent") if isinstance(raw, dict) else "agent",
         )
-        for ed in events_data:
-            try:
-                session.add_event(RuntimeEvent(
-                    type=EventType(ed.get("type","decision")),
-                    timestamp_ms=ed.get("timestamp_ms", 0),
-                    data=ed.get("data", {}),
-                ))
-            except Exception:
-                pass
+        events, unresolved = _load_session_events(raw, events_data)
+        for e in events:
+            session.add_event(e)
+        _print_unresolved_warning(unresolved, len(events_data))
         report = analyser.analyse_session(session)
     else:
         sys_prompt = args.system_prompt or ""
@@ -281,7 +351,7 @@ def add_runtime_parser(subparsers):
 
 def cmd_goal_integrity(args):
     """agentscan runtime goals <session_file> -- reasoning and goal integrity analysis."""
-    from agentscan.runtime.events import AgentSession, RuntimeEvent, EventType
+    from agentscan.runtime.events import AgentSession
     from agentscan.runtime.goal_integrity import analyse_goal_integrity
 
     path = Path(args.session_file)
@@ -294,17 +364,12 @@ def cmd_goal_integrity(args):
         session_id=raw.get("session_id","s1") if isinstance(raw, dict) else "s1",
         agent_id=raw.get("agent_id","agent") if isinstance(raw, dict) else "agent",
     )
-    for ed in events_data:
-        try:
-            session.add_event(RuntimeEvent(
-                type=EventType(ed.get("type","decision")),
-                timestamp_ms=ed.get("timestamp_ms", 0),
-                data=ed.get("data", {}),
-            ))
-        except Exception:
-            pass
+    events, unresolved = _load_session_events(raw, events_data)
+    for e in events:
+        session.add_event(e)
 
     report = analyse_goal_integrity(session)
+    _print_unresolved_warning(unresolved, len(events_data))
 
     sc = RED if report.integrity_score < 50 else ORANGE if report.integrity_score < 80 else GREEN
     print(f"\n  {_col(BOLD+CYAN, 'Reasoning & Goal Integrity Analysis')} -- session {session.session_id}\n")

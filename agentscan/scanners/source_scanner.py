@@ -37,6 +37,7 @@ from agentscan.scanners.capabilities import (
     DANGEROUS_COMBINATIONS,
     detect_capabilities_with_reasons as _detect_capabilities_with_reasons,
     detect_capabilities_from_body,
+    collect_import_aliases,
     normalise as _normalise,
 )
 
@@ -119,11 +120,26 @@ class ToolExtractor(ast.NodeVisitor):
         # so behavioral (AST) detection applies to them too, not just
         # decorator-based tools.
         self._function_nodes: dict[str, object] = {}
+        # Import-alias tables populated in extract_tools_from_file's
+        # pre-pass, used to resolve aliased/indirect dangerous calls
+        # before AST body matching (see capabilities.collect_import_aliases).
+        self._module_aliases: dict[str, str] = {}
+        self._func_aliases: dict[str, str] = {}
         # Base classes that mark a class as an agent tool.
         # Seeded with known third-party names; grows as we find internal wrappers.
         self._known_tool_bases: set[str] = {
             "BaseTool", "StructuredTool",  # LangChain / CrewAI
         }
+
+    def _body_caps(self, node) -> dict:
+        """Convenience wrapper: AST body detection with this file's
+        alias tables and local-function resolver wired in."""
+        return detect_capabilities_from_body(
+            node,
+            module_aliases=self._module_aliases,
+            func_aliases=self._func_aliases,
+            resolve_local_call=self._function_nodes.get,
+        )
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._function_docstrings[node.name] = _get_docstring(node)
@@ -147,7 +163,7 @@ class ToolExtractor(ast.NodeVisitor):
                     source_file=self.source_file,
                     line_number=node.lineno,
                     decorator_used=f"@{dec_name}",
-                    body_capabilities=detect_capabilities_from_body(node),
+                    body_capabilities=self._body_caps(node),
                 ))
                 return
 
@@ -177,7 +193,7 @@ class ToolExtractor(ast.NodeVisitor):
                     source_file=self.source_file,
                     line_number=node.lineno,
                     decorator_used="FunctionTool.from_defaults(...)",
-                    body_capabilities=(detect_capabilities_from_body(resolved_node)
+                    body_capabilities=(self._body_caps(resolved_node)
                                        if resolved_node is not None else {}),
                 ))
             self.generic_visit(node)
@@ -217,7 +233,7 @@ class ToolExtractor(ast.NodeVisitor):
                     source_file=self.source_file,
                     line_number=node.lineno,
                     decorator_used=f"{call_name}(...)",
-                    body_capabilities=(detect_capabilities_from_body(resolved_node)
+                    body_capabilities=(self._body_caps(resolved_node)
                                        if resolved_node is not None else {}),
                 ))
         self.generic_visit(node)
@@ -379,6 +395,10 @@ def extract_tools_from_file(path: Path) -> list[ExtractedTool]:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             extractor._function_docstrings[node.name] = _get_docstring(node)
             extractor._function_nodes[node.name] = node
+
+    # Pre-pass: import alias resolution for behavioral (AST) detection --
+    # see capabilities.collect_import_aliases for why this exists.
+    extractor._module_aliases, extractor._func_aliases = collect_import_aliases(tree)
 
     # Pre-pass 2: collect wrapper/abstract base classes (internal BaseTool subclasses
     # with no name/description attributes -- they are wrappers, not concrete tools).

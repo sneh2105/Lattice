@@ -163,12 +163,27 @@ class EscalationPath:
 class EscalationReport:
     """Complete capability escalation analysis."""
     declared_capabilities: set[str]
-    declared_risk: int               # risk score from declared capabilities alone
+    declared_risk: int               # risk score from declared capabilities alone (0-100, display-capped)
     effective_capabilities: set[str] # capabilities INCLUDING escalations
-    effective_risk: int              # true risk including escalation
+    effective_risk: int              # true risk including escalation (0-100, display-capped)
     escalation_paths: list[EscalationPath]
     findings: list[Finding]
-    escalation_factor: float         # effective_risk / declared_risk
+    escalation_factor: float         # effective_risk / declared_risk, computed from
+                                      # UNCAPPED point totals (see below) so it stays
+                                      # meaningful for agents whose effective risk would
+                                      # exceed the 0-100 display ceiling.
+    # Round-6 QA finding: declared_risk and effective_risk are both
+    # clamped to a 100-point display ceiling. Computing the escalation
+    # factor from the CAPPED numbers meant two agents with wildly
+    # different actual escalation exposure (say, +60 points vs +325
+    # points of real escalation) could both show ~1.0x once either
+    # score neared the cap -- exactly backwards for a prioritisation
+    # signal, since it goes flat precisely on the highest-risk agents.
+    # These uncapped point totals are what escalation_factor is
+    # actually computed from; expose them so a report can show the
+    # true magnitude (e.g. "effective risk 100/100 (385 pts uncapped)").
+    declared_risk_uncapped: int = 0
+    effective_risk_uncapped: int = 0
 
 
 def analyse_capability_escalation(capabilities: list[str]) -> EscalationReport:
@@ -177,7 +192,8 @@ def analyse_capability_escalation(capabilities: list[str]) -> EscalationReport:
     and compute the TRUE effective risk vs the DECLARED risk.
     """
     declared = set(capabilities)
-    declared_risk = min(sum(BASE_RISK.get(c, 5) for c in declared), 100)
+    declared_risk_uncapped = sum(BASE_RISK.get(c, 5) for c in declared)
+    declared_risk = min(declared_risk_uncapped, 100)
 
     escalation_paths: list[EscalationPath] = []
     effective = set(declared)
@@ -218,8 +234,11 @@ def analyse_capability_escalation(capabilities: list[str]) -> EscalationReport:
                         mitre_atlas=rule["mitre"],
                     ))
 
-    effective_risk = min(sum(BASE_RISK.get(c, 5) for c in effective), 100)
-    escalation_factor = round(effective_risk / max(declared_risk, 1), 2)
+    effective_risk_uncapped = sum(BASE_RISK.get(c, 5) for c in effective)
+    effective_risk = min(effective_risk_uncapped, 100)
+    # Escalation factor is computed from the UNCAPPED totals, not the
+    # 0-100 display-capped scores -- see EscalationReport docstring.
+    escalation_factor = round(effective_risk_uncapped / max(declared_risk_uncapped, 1), 2)
 
     # Build findings
     findings: list[Finding] = []
@@ -263,7 +282,9 @@ def analyse_capability_escalation(capabilities: list[str]) -> EscalationReport:
             explanation=(
                 f"Based on declared capabilities alone, this agent scores {declared_risk}/100 risk. "
                 f"But {len(escalation_paths)} escalation path(s) mean the EFFECTIVE risk is "
-                f"{effective_risk}/100 -- a {escalation_factor}x increase. This gap is exactly "
+                f"{effective_risk}/100"
+                + (f" (would be {effective_risk_uncapped} pts uncapped)" if effective_risk_uncapped > 100 else "")
+                + f" -- a {escalation_factor}x increase. This gap is exactly "
                 "where security reviews based on declared permissions alone go wrong."
             ),
             impact="Security review based on declared capabilities significantly underestimates true risk.",
@@ -289,4 +310,6 @@ def analyse_capability_escalation(capabilities: list[str]) -> EscalationReport:
         escalation_paths=escalation_paths,
         findings=findings,
         escalation_factor=escalation_factor,
+        declared_risk_uncapped=declared_risk_uncapped,
+        effective_risk_uncapped=effective_risk_uncapped,
     )

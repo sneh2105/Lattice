@@ -494,42 +494,173 @@ def _dotted_call_name(func_node) -> str:
     return ".".join(reversed(parts))
 
 
-def detect_capabilities_from_body(func_node) -> dict[str, str]:
+def collect_import_aliases(tree) -> tuple[dict[str, str], dict[str, str]]:
+    """
+    Walk a module's top-level (and nested) import statements and build:
+      module_aliases: local alias -> real module name
+        e.g. "import subprocess as sp"       -> {"sp": "subprocess"}
+      func_aliases:   local bare name -> "module.func" dotted real name
+        e.g. "from subprocess import run as go" -> {"go": "subprocess.run"}
+        e.g. "from os import system"            -> {"system": "os.system"}
+
+    Round-6/7 red-team finding: detect_capabilities_from_body matched
+    literal dotted names ("subprocess.run"), which is trivially evaded
+    by `import subprocess as sp; sp.run(...)` or
+    `from subprocess import run as go; go(...)`. Resolving aliases before
+    matching closes this without needing to understand the call
+    semantically -- it's still exact dotted-name matching, just against
+    the resolved name instead of the literal source text.
+    """
+    import ast
+    module_aliases: dict[str, str] = {}
+    func_aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local = alias.asname or alias.name
+                module_aliases[local] = alias.name
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                local = alias.asname or alias.name
+                func_aliases[local] = node.module + "." + alias.name
+    return module_aliases, func_aliases
+
+
+def _resolve_dotted(raw_dotted: str, module_aliases: dict, func_aliases: dict) -> str:
+    """Resolve a raw dotted call name through import-alias tables."""
+    if not raw_dotted:
+        return raw_dotted
+    if "." in raw_dotted:
+        first, rest = raw_dotted.split(".", 1)
+        first = module_aliases.get(first, first)
+        return first + "." + rest
+    return func_aliases.get(raw_dotted, raw_dotted)
+
+
+def detect_capabilities_from_body(
+    func_node,
+    module_aliases: dict | None = None,
+    func_aliases: dict | None = None,
+    resolve_local_call=None,
+    _visited: set | None = None,
+) -> dict[str, str]:
     """
     Walk a function's AST body for calls to known-dangerous stdlib/SDK
     functions. Independent of and additive to name/description
     matching -- see module docstring above for why this layer exists.
 
     func_node: an ast.FunctionDef or ast.AsyncFunctionDef.
+    module_aliases / func_aliases: from collect_import_aliases(), used
+        to resolve `import subprocess as sp; sp.run(...)` and
+        `from subprocess import run as go; go(...)` to their real
+        dotted names before matching.
+    resolve_local_call: optional callable(name) -> ast.FunctionDef|None
+        for resolving calls to locally-defined helper functions, so
+        `def utility(): return _do_it()` where `_do_it` itself calls
+        `subprocess.run` is still caught by recursing one level in
+        (bounded by _visited to avoid infinite recursion on cycles).
     Returns {capability_name: reason_string}.
     """
     import ast
 
+    module_aliases = module_aliases or {}
+    func_aliases = func_aliases or {}
+    _visited = _visited if _visited is not None else set()
+
     reasons: dict[str, str] = {}
+
+    # Local variable aliases within this function body: `fn = getattr(subprocess, "run")`
+    # followed by a separate `fn(cmd, ...)` call. Resolved in a pre-scan
+    # of this function's own Assign statements (not recursed into nested
+    # functions, to keep this a same-scope, no-data-flow-analysis check).
+    local_var_aliases: dict[str, str] = {}
+    for _node in ast.walk(func_node):
+        if not isinstance(_node, ast.Assign) or len(_node.targets) != 1:
+            continue
+        target = _node.targets[0]
+        if not isinstance(target, ast.Name):
+            continue
+        value = _node.value
+        if (isinstance(value, ast.Call) and isinstance(value.func, ast.Name)
+                and value.func.id == "getattr" and len(value.args) >= 2):
+            obj_arg, attr_arg = value.args[0], value.args[1]
+            if isinstance(attr_arg, ast.Constant) and isinstance(attr_arg.value, str):
+                obj_name = ""
+                if isinstance(obj_arg, ast.Name):
+                    obj_name = module_aliases.get(obj_arg.id, obj_arg.id)
+                elif isinstance(obj_arg, ast.Attribute):
+                    obj_name = _resolve_dotted(
+                        _dotted_call_name(obj_arg), module_aliases, func_aliases)
+                if obj_name:
+                    local_var_aliases[target.id] = (obj_name + "." + attr_arg.value).lower()
+
+    def _record(dotted: str, call_node) -> bool:
+        """Match a resolved dotted name against BODY_CALL_SIGNALS. Returns True if matched."""
+        if dotted not in BODY_CALL_SIGNALS:
+            return False
+        cap, reason = BODY_CALL_SIGNALS[dotted]
+        reasons.setdefault(cap, "AST evidence: " + reason)
+        if dotted == "boto3.client" and call_node.args:
+            first = call_node.args[0]
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                if first.value.lower() in _BOTO_SECRET_SERVICES:
+                    reasons.setdefault(
+                        "secret_access",
+                        "AST evidence: calls boto3.client(" + repr(first.value) + ")"
+                    )
+        return True
+
     for node in ast.walk(func_node):
         if not isinstance(node, ast.Call):
             continue
-        dotted = _dotted_call_name(node.func).lower()
-        if not dotted:
-            continue
 
-        if dotted in BODY_CALL_SIGNALS:
-            cap, reason = BODY_CALL_SIGNALS[dotted]
-            reasons.setdefault(cap, "AST evidence: " + reason)
-            if dotted == "boto3.client" and node.args:
-                first = node.args[0]
-                if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                    if first.value.lower() in _BOTO_SECRET_SERVICES:
-                        reasons.setdefault(
-                            "secret_access",
-                            "AST evidence: calls boto3.client(" + repr(first.value) + ")"
-                        )
-            continue
+        # Case 1: direct attribute/name call, resolved through import aliases.
+        # Covers both literal calls (subprocess.run) and aliased imports
+        # (sp.run where "import subprocess as sp", or go(...) where
+        # "from subprocess import run as go").
+        raw_dotted = _dotted_call_name(node.func).lower()
+        if raw_dotted:
+            resolved = local_var_aliases.get(
+                raw_dotted, _resolve_dotted(raw_dotted, module_aliases, func_aliases).lower())
+            if _record(resolved, node):
+                continue
 
-        # bare eval/exec/compile: dotted name is just "eval" etc (no dots)
-        if dotted in ("eval", "exec", "compile"):
-            cap, reason = BODY_CALL_SIGNALS[dotted]
-            reasons.setdefault(cap, "AST evidence: " + reason)
-            continue
+        # Case 2: getattr(module, "attr")(...) dynamic dispatch, e.g.
+        # fn = getattr(subprocess, "run"); fn(cmd, shell=True)
+        # or the single-expression form getattr(subprocess, "run")(cmd).
+        if isinstance(node.func, ast.Call):
+            inner = node.func
+            if (isinstance(inner.func, ast.Name) and inner.func.id == "getattr"
+                    and len(inner.args) >= 2):
+                obj_arg, attr_arg = inner.args[0], inner.args[1]
+                if isinstance(attr_arg, ast.Constant) and isinstance(attr_arg.value, str):
+                    obj_name = ""
+                    if isinstance(obj_arg, ast.Name):
+                        obj_name = module_aliases.get(obj_arg.id, obj_arg.id)
+                    elif isinstance(obj_arg, ast.Attribute):
+                        obj_name = _resolve_dotted(
+                            _dotted_call_name(obj_arg), module_aliases, func_aliases)
+                    if obj_name:
+                        resolved = (obj_name + "." + attr_arg.value).lower()
+                        if _record(resolved, node):
+                            continue
+
+        # Also resolve getattr(...) results assigned to a variable then
+        # called later is out of scope (would need data-flow tracking
+        # beyond a single-pass AST walk) -- documented limitation.
+
+        # Case 3: indirection through a locally-defined helper function.
+        # `def utility(): return _do_it()` where `_do_it` is itself a
+        # function in this file whose body contains the real dangerous
+        # call. Bounded by _visited to avoid infinite recursion.
+        if resolve_local_call is not None and isinstance(node.func, ast.Name):
+            target = resolve_local_call(node.func.id)
+            if target is not None and id(target) not in _visited:
+                _visited.add(id(target))
+                nested = detect_capabilities_from_body(
+                    target, module_aliases, func_aliases, resolve_local_call, _visited)
+                for cap, reason in nested.items():
+                    reasons.setdefault(
+                        cap, reason + " (reached via local helper '" + node.func.id + "')")
 
     return reasons

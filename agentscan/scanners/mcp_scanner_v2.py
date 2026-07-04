@@ -118,6 +118,13 @@ class MCPServerProfile:
     has_wildcard_perms: bool
     capabilities: list[str]      # all unique cap names
     graph: AttackGraph
+    # Non-empty when tool extraction could not confidently resolve this
+    # target's capabilities (either the file isn't native MCP-manifest
+    # shape and had to fall back to agent-config-style extraction, or no
+    # tool list could be found under either format at all). A CLI/report
+    # consumer must render this distinctly from "extracted successfully,
+    # found nothing dangerous" -- an unresolved target is not a clean one.
+    extraction_note: str = ""
 
 
 from agentscan.scanners.capabilities import (
@@ -421,6 +428,45 @@ def scan_mcp_v2(target: str, timeout: int = 10) -> tuple[MCPServerProfile, ScanR
     if not isinstance(raw_tools, list):
         raw_tools = []
 
+    # Round-6 QA finding: a JSON file that is a fully-valid agent config
+    # in a different shape (n8n, Dify, other no-code exports -- the same
+    # formats agent_scanner/doctor already handle) has no top-level
+    # "tools" list, so raw_tools comes back empty here even though the
+    # file genuinely contains dangerous tools. graph chain then silently
+    # reported "capabilities: [], risk_score: 0" for that server -- which
+    # reads identically to "scanned it, it's clean" when the truth is
+    # "didn't know how to read this file's shape at all."
+    #
+    # The round-2 MCP-vs-agent-config distinguisher (does the tools[]
+    # entries carry inputSchema, the actual MCP wire-format field) tells
+    # us whether raw_tools is genuine MCP shape. If it isn't (or is
+    # empty), fall back to the same universal agent-config extraction
+    # agent_scanner/doctor already use, so this code path can never
+    # silently know less than those two commands do about the same file.
+    looks_native_mcp = bool(raw_tools) and any(
+        isinstance(t, dict) and ("inputSchema" in t or "input_schema" in t)
+        for t in raw_tools
+    )
+    extraction_note = ""
+    if not looks_native_mcp:
+        from agentscan.scanners.agent_scanner import _extract_tools as _agent_extract_tools
+        fallback_tools = _agent_extract_tools(manifest)
+        if fallback_tools:
+            raw_tools = fallback_tools
+            extraction_note = (
+                "Tool definitions recovered via agent-config-style extraction "
+                "(this file is not native MCP tools[] manifest shape -- no "
+                "inputSchema on entries). Some MCP-specific fields (input "
+                "schema, wire metadata) are unavailable for this target."
+            )
+        elif not raw_tools:
+            extraction_note = (
+                "Could not extract any tool definitions from this file under "
+                "either MCP manifest or agent-config formats. Capabilities "
+                "below are UNRESOLVED, not confirmed absent -- do not read "
+                "an empty capability list here as 'scanned and clean'."
+            )
+
     server_id = f"mcp_{hashlib.md5(target.encode()).hexdigest()[:8]}"
     tool_analyses = [_analyse_tool(t, server_id) for t in raw_tools]
 
@@ -513,7 +559,7 @@ def scan_mcp_v2(target: str, timeout: int = 10) -> tuple[MCPServerProfile, ScanR
         tools=tool_analyses, findings=all_findings,
         attack_paths=paths, trust_deductions=trust_deductions,
         publisher=publisher, has_auth=has_auth, has_wildcard_perms=has_wildcard,
-        capabilities=all_caps, graph=graph,
+        capabilities=all_caps, graph=graph, extraction_note=extraction_note,
     )
 
     return profile, result

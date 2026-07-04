@@ -172,13 +172,15 @@ def _render_chain_report(report: MCPTrustChainReport, args):
     # -- Server overview table ------------------------------------------------
     print(_col(BOLD, "  -- Server Overview " + "-"*48))
     print()
-    header = f"  {'Server':<28} {'Declared':>9} {'Effective':>10} {'?':>5}  {'Level':<10}  Capabilities"
+    header = f"  {'Server':<28} {'Declared':>9} {'Effective':>10} {'Delta':>5}  {'Level':<10}  Capabilities"
     print(_col(DIM, header))
     print(_col(DIM, "  " + "-"*85))
 
     for name, result in report.trust_propagation.items():
         profile = report.server_profiles.get(name)
         caps = ", ".join(profile.capabilities[:4]) + ("..." if len(profile.capabilities) > 4 else "") if profile else ""
+        if profile and profile.extraction_note and not profile.capabilities:
+            caps = _col(ORANGE, "UNRESOLVED (see warning below)")
         dc = _trust_colour(result.declared_trust)
         ec = _trust_colour(result.effective_trust)
         delta = result.trust_reduction
@@ -193,6 +195,20 @@ def _render_chain_report(report: MCPTrustChainReport, args):
     print(f"  Weakest server      : {_col(RED, report.weakest_server or 'N/A')}")
     print(f"  Effective trust floor: {_col(_trust_colour(report.effective_trust_floor), str(report.effective_trust_floor))}/100")
     print()
+
+    # -- Extraction warnings ---------------------------------------------------
+    # Round-6 QA finding: a target whose capabilities could not be resolved
+    # (wrong/unsupported file shape) previously showed as capabilities: [],
+    # risk_score: 0 -- indistinguishable from "scanned and genuinely clean."
+    # Surface it explicitly, separate from the overview table, so it can't
+    # be missed or mistaken for a clean result.
+    unresolved = [(n, p) for n, p in report.server_profiles.items() if p.extraction_note]
+    if unresolved:
+        print(_col(BOLD + ORANGE, "  -- Extraction Warnings " + "-"*44))
+        print()
+        for name, profile in unresolved:
+            print(f"  {_col(ORANGE, '[!]')} '{_col(BOLD, name)}': {profile.extraction_note}")
+        print()
 
     # -- Trust propagation detail ---------------------------------------------
     poisoned = [(n, r) for n, r in report.trust_propagation.items() if r.trust_reduction > 0]
@@ -219,7 +235,7 @@ def _render_chain_report(report: MCPTrustChainReport, args):
             dst_name = id_to_name.get(edge.dst_id, edge.dst_id)
             rel_col = GREEN if edge.declared else YELLOW
             rel_label = "declared" if edge.declared else "inferred"
-            print(f"  {_col(CYAN, src_name)} --{edge.relationship.replace('_','-')}--? "
+            print(f"  {_col(CYAN, src_name)} --{edge.relationship.replace('_','-')}--> "
                   f"{_col(CYAN, dst_name)}  {_col(rel_col, f'[{rel_label}]')}")
         print()
 
@@ -275,6 +291,9 @@ def _render_chain_report(report: MCPTrustChainReport, args):
                     "poisoned_by": r.poisoned_by,
                     "capabilities": report.server_profiles[name].capabilities if name in report.server_profiles else [],
                     "risk_score": report.server_profiles[name].risk_score if name in report.server_profiles else 0,
+                    "extraction_note": (report.server_profiles[name].extraction_note
+                                        if name in report.server_profiles else
+                                        "server profile missing entirely"),
                 }
                 for name, r in report.trust_propagation.items()
             },
@@ -419,9 +438,12 @@ def cmd_graph_escalation(args):
     print(f"\n  {_col(BOLD+CYAN, 'Capability Escalation Analysis')} -- {args.config}\n")
     print(f"  Declared capabilities : {', '.join(sorted(report.declared_capabilities)) or '(none)'}")
     print(f"  Declared risk         : {report.declared_risk}/100")
-    print(f"  Effective risk        : {_col(RED, str(report.effective_risk))}/100")
+    eff_suffix = (f"  ({report.effective_risk_uncapped} pts uncapped)"
+                  if report.effective_risk_uncapped > 100 else "")
+    print(f"  Effective risk        : {_col(RED, str(report.effective_risk))}/100{_col(DIM, eff_suffix)}")
     ef_col = RED if report.escalation_factor >= 1.5 else ORANGE if report.escalation_factor > 1.0 else GREEN
-    print(f"  Escalation factor     : {_col(ef_col, f'{report.escalation_factor}x')}\n")
+    print(f"  Escalation factor     : {_col(ef_col, f'{report.escalation_factor}x')}"
+          f"{_col(DIM, '  (computed from uncapped point totals)') if report.effective_risk_uncapped > 100 else ''}\n")
 
     new_caps = report.effective_capabilities - report.declared_capabilities
     if new_caps:
