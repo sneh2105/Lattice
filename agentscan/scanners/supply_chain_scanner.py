@@ -23,6 +23,7 @@ import re
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -220,7 +221,15 @@ def _scan_pypi(package_name: str) -> ScanResult:
         ))
 
     # 3. Fetch live metadata
-    meta = _fetch_json(f"https://pypi.org/pypi/{package_name}/json")
+    # package_name is user/CLI-supplied (agentscan supply pypi:<name>) --
+    # URL-encode it before interpolating into the request URL. Raw
+    # interpolation would let a crafted name containing '?', '#', or
+    # path-traversal segments alter which PyPI endpoint actually gets
+    # hit (the host stays pinned to pypi.org, so this isn't SSRF, but
+    # an unencoded name can still produce a malformed or unintended
+    # request path).
+    safe_name = urllib.parse.quote(package_name, safe="")
+    meta = _fetch_json(f"https://pypi.org/pypi/{safe_name}/json")
     if not meta:
         return ScanResult(
             target=f"pypi:{package_name}", scanner_type="supply_chain_v2",
@@ -302,8 +311,12 @@ def _scan_npm(package_name: str) -> ScanResult:
             tags=["supply-chain", "known-malicious", "npm"],
         ))
 
-    # Fetch registry metadata
-    encoded = package_name.replace("/", "%2F")
+    # Fetch registry metadata. Same encoding concern as PyPI above --
+    # quote the whole name but keep '@' and '/' literal, since npm's
+    # registry API expects scoped names as "/@scope/name" verbatim
+    # (only the "/" *within* the name needs encoding as %2F for scoped
+    # packages; the registry parses "@scope%2Fname" as one path segment).
+    encoded = urllib.parse.quote(package_name, safe="@").replace("/", "%2F")
     meta = _fetch_json(f"https://registry.npmjs.org/{encoded}")
     if not meta:
         return ScanResult(
@@ -394,7 +407,11 @@ def _scan_hf_model(repo_id: str) -> ScanResult:
     start = time.monotonic()
     findings: list[Finding] = []
 
-    meta = _fetch_json(f"https://huggingface.co/api/models/{repo_id}")
+    # repo_id is user/CLI-supplied ("org/model") -- encode each path
+    # segment but keep the "/" separator literal, same reasoning as
+    # the PyPI/npm encoding above.
+    safe_repo_id = urllib.parse.quote(repo_id, safe="/")
+    meta = _fetch_json(f"https://huggingface.co/api/models/{safe_repo_id}")
     if not meta:
         return ScanResult(target=f"hf:{repo_id}", scanner_type="supply_chain_v2",
                          error=f"Cannot fetch HuggingFace model: '{repo_id}'",
@@ -495,8 +512,13 @@ def _scan_hf_dataset(repo_id: str) -> ScanResult:
     start = time.monotonic()
     findings: list[Finding] = []
 
+    # repo_id is user/CLI-supplied -- encode consistently for every URL
+    # built from it below (path segments and the query-string value).
+    safe_repo_id = urllib.parse.quote(repo_id, safe="/")
+    safe_repo_id_q = urllib.parse.quote(repo_id, safe="")
+
     # Fetch dataset metadata
-    meta = _fetch_json(f"https://huggingface.co/api/datasets/{repo_id}")
+    meta = _fetch_json(f"https://huggingface.co/api/datasets/{safe_repo_id}")
     if not meta:
         return ScanResult(target=f"dataset:{repo_id}", scanner_type="supply_chain_v2",
                          error=f"Cannot fetch dataset metadata: '{repo_id}'",
@@ -509,7 +531,7 @@ def _scan_hf_dataset(repo_id: str) -> ScanResult:
 
     # Try to fetch a sample from dataset viewer API
     sample_text = ""
-    viewer_url = f"https://datasets-server.huggingface.co/rows?dataset={repo_id}&split=train&offset=0&limit=20"
+    viewer_url = f"https://datasets-server.huggingface.co/rows?dataset={safe_repo_id_q}&split=train&offset=0&limit=20"
     viewer_data = _fetch_json(viewer_url, timeout=15)
     if viewer_data and "rows" in viewer_data:
         rows = viewer_data["rows"][:20]
@@ -517,7 +539,7 @@ def _scan_hf_dataset(repo_id: str) -> ScanResult:
 
     # Also try fetching a README/data card
     readme_text = _fetch_text(
-        f"https://huggingface.co/{repo_id}/raw/main/README.md", max_bytes=30_000
+        f"https://huggingface.co/{safe_repo_id}/raw/main/README.md", max_bytes=30_000
     ) or ""
 
     combined_text = sample_text + "\n" + readme_text

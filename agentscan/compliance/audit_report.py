@@ -19,6 +19,8 @@ from __future__ import annotations
 from agentscan import __version__
 from datetime import date
 from pathlib import Path
+import os
+import tempfile
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -28,6 +30,30 @@ from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
     HRFlowable, PageBreak,
 )
+
+
+def _esc(s) -> str:
+    """
+    Escape text before it reaches reportlab's Paragraph(), which
+    interprets a mini markup language (<b>, <font>, <a href>, <para>,
+    etc.) in its text argument -- the PDF equivalent of the HTML
+    report's XSS surface. Any field that ultimately comes from scanned
+    tool/agent config content (tool names, descriptions, findings,
+    attack-path titles, CLI-supplied organisation/assessor names) must
+    be escaped before interpolation, or a maliciously-named tool
+    (e.g. one containing '<a href="...">' or a malformed '<font>' tag)
+    could corrupt this document's layout or inject arbitrary styled/
+    linked content into a board/auditor-facing PDF.
+
+    Call this on every dynamic value passed into Paragraph() text.
+    Do NOT call it on the literal markup this module writes itself
+    (e.g. the "<b>...</b>" wrapper text) -- only on the interpolated
+    variable.
+    """
+    if s is None:
+        return ""
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;"))
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 from agentscan.models import ScanResult, Severity
@@ -100,8 +126,18 @@ def generate_audit_report(
 ) -> str:
     """Generate a PDF audit report. Returns the output path."""
     output_path = str(Path(output_path).with_suffix(".pdf"))
+    # Build to a temp file in the same directory, then atomically move
+    # into place -- reportlab's SimpleDocTemplate writes incrementally
+    # to the target path as it builds the document, so a concurrent scan
+    # writing to the same output path (or a reader opening it mid-build)
+    # could otherwise see a truncated/corrupt PDF.
+    final_path = Path(output_path)
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_name = tempfile.mkstemp(
+        dir=str(final_path.parent), prefix="." + final_path.name + ".", suffix=".tmp")
+    os.close(tmp_fd)
     doc = SimpleDocTemplate(
-        output_path,
+        tmp_name,
         pagesize=A4,
         leftMargin=20*mm, rightMargin=20*mm,
         topMargin=20*mm, bottomMargin=20*mm,
@@ -122,10 +158,10 @@ def generate_audit_report(
             [Paragraph("AgentScan", S["cover_title"])],
             [Paragraph("AI Agent Security &amp; Compliance Audit Report", S["cover_sub"])],
             [Spacer(1, 8*mm)],
-            [Paragraph(f"<b>Agent:</b> {agent_name}", S["cover_sub"])],
-            [Paragraph(f"<b>Organisation:</b> {organisation}", S["cover_sub"])],
+            [Paragraph(f"<b>Agent:</b> {_esc(agent_name)}", S["cover_sub"])],
+            [Paragraph(f"<b>Organisation:</b> {_esc(organisation)}", S["cover_sub"])],
             [Paragraph(f"<b>Assessment date:</b> {date.today().strftime('%B %d, %Y')}", S["cover_sub"])],
-            [Paragraph(f"<b>Assessor:</b> {assessor}", S["cover_sub"])],
+            [Paragraph(f"<b>Assessor:</b> {_esc(assessor)}", S["cover_sub"])],
             [Spacer(1, 8*mm)],
             [Paragraph("Frameworks covered", S["cover_sub"])],
             # Derived from the report itself (which derives from
@@ -191,7 +227,7 @@ def generate_audit_report(
     if compliance_report.priority_gaps:
         story.append(Paragraph("Priority actions required:", S["bold"]))
         for i, gap in enumerate(compliance_report.priority_gaps, 1):
-            story.append(Paragraph(f"{i}. {gap}", S["body"]))
+            story.append(Paragraph(f"{i}. {_esc(gap)}", S["body"]))
     story.append(Spacer(1, 4*mm))
 
     # -- ATTACK PATHS --------------------------------------------------------
@@ -208,15 +244,15 @@ def generate_audit_report(
 
         for path in result.attack_paths:
             path_data = [
-                [Paragraph(f"<b>{path.title}</b>",
+                [Paragraph(f"<b>{_esc(path.title)}</b>",
                             ParagraphStyle("pt", fontSize=9, textColor=RED_DARK,
                                            fontName="Helvetica-Bold", leading=13)), ""],
-                [Paragraph("Entry point", S["label"]), Paragraph(path.entry_point, S["body"])],
-                [Paragraph("Impact", S["label"]), Paragraph(path.impact, S["body"])],
+                [Paragraph("Entry point", S["label"]), Paragraph(_esc(path.entry_point), S["body"])],
+                [Paragraph("Impact", S["label"]), Paragraph(_esc(path.impact), S["body"])],
                 [Paragraph("MITRE ATLAS", S["label"]),
                  Paragraph(", ".join(path.mitre_atlas), S["body"])],
                 [Paragraph("Chain", S["label"]),
-                 Paragraph(" -> ".join([s.title[:50] for s in path.steps[:4]]), S["small"])],
+                 Paragraph(" -> ".join([_esc(s.title[:50]) for s in path.steps[:4]]), S["small"])],
             ]
             path_table = Table(path_data, colWidths=[30*mm, W - 30*mm])
             path_table.setStyle(TableStyle([
@@ -254,9 +290,9 @@ def generate_audit_report(
     for f in sorted_findings:
         findings_rows.append([
             _severity_cell(f.severity.value),
-            Paragraph(f.title, S["small"]),
-            Paragraph(f.impact[:120], S["small"]),
-            Paragraph(f.remediation[:150], S["small"]),
+            Paragraph(_esc(f.title), S["small"]),
+            Paragraph(_esc(f.impact[:120]), S["small"]),
+            Paragraph(_esc(f.remediation[:150]), S["small"]),
         ])
 
     if not sorted_findings:
@@ -301,7 +337,7 @@ def generate_audit_report(
                 Paragraph(ctrl.control_id, ParagraphStyle("cid", fontSize=7, textColor=BLUE,
                                                            fontName="Helvetica-Bold", leading=10)),
                 Paragraph(ctrl.control_name, S["small"]),
-                Paragraph(mapping.finding_title[:60], S["small"]),
+                Paragraph(_esc(mapping.finding_title[:60]), S["small"]),
                 Paragraph(ctrl.obligation[:100], S["small"]),
             ])
 
@@ -332,11 +368,11 @@ def generate_audit_report(
 
     for gap in DPDP_STATIC_GAPS:
         gap_data = [
-            [Paragraph(f"[!] {gap['gap']}", ParagraphStyle("gg", fontSize=9, textColor=ORANGE,
+            [Paragraph(f"[!] {_esc(gap['gap'])}", ParagraphStyle("gg", fontSize=9, textColor=ORANGE,
                                                            fontName="Helvetica-Bold", leading=13)),
-             Paragraph(f"Control: {gap['control']}  |  Deadline: {gap['deadline']}",
+             Paragraph(f"Control: {_esc(gap['control'])}  |  Deadline: {_esc(gap['deadline'])}",
                        S["small"])],
-            [Paragraph(gap["detail"], S["small"]), ""],
+            [Paragraph(_esc(gap["detail"]), S["small"]), ""],
         ]
         gap_table = Table(gap_data, colWidths=[W*0.6, W*0.4])
         gap_table.setStyle(TableStyle([
@@ -367,11 +403,11 @@ def generate_audit_report(
 
         dpia_summary = Table([
             [Paragraph("Overall Risk Level", S["label"]),
-             Paragraph(dpia.overall_risk_level.upper(),
+             Paragraph(_esc(dpia.overall_risk_level.upper()),
                        ParagraphStyle("drl", fontSize=11, textColor=risk_col,
                                       fontName="Helvetica-Bold", leading=14)),
              Paragraph("Recommendation", S["label"]),
-             Paragraph(dpia.recommended_action.upper().replace("-", " "),
+             Paragraph(_esc(dpia.recommended_action.upper().replace("-", " ")),
                        ParagraphStyle("rec", fontSize=9, textColor=rec_col,
                                       fontName="Helvetica-Bold", leading=12))],
         ], colWidths=[30*mm, 50*mm, 30*mm, 60*mm])
@@ -393,13 +429,13 @@ def generate_audit_report(
                 f'{section.title} -- <font color="{"#2d6a2d" if section.status == "adequate" else "#c47a1e"}">{status_label}</font>',
                 S["bold"]
             ))
-            story.append(Paragraph(section.content.replace("\n", "<br/>"), S["body"]))
+            story.append(Paragraph(_esc(section.content).replace("\n", "<br/>"), S["body"]))
             story.append(Spacer(1, 3*mm))
 
         if dpia.open_gaps:
             story.append(Paragraph("Open gaps requiring manual review:", S["bold"]))
             for gap in dpia.open_gaps:
-                story.append(Paragraph(f"* {gap}", S["body"]))
+                story.append(Paragraph(f"* {_esc(gap)}", S["body"]))
             story.append(Spacer(1, 3*mm))
 
     # -- SIGN-OFF -------------------------------------------------------------
@@ -439,5 +475,14 @@ def generate_audit_report(
         ParagraphStyle("footer", fontSize=7, textColor=MID_GREY, alignment=TA_CENTER)
     ))
 
-    doc.build(story)
+    try:
+        doc.build(story)
+        os.chmod(tmp_name, 0o644)  # mkstemp defaults to 0600; PDFs are meant to be shared
+        os.replace(tmp_name, output_path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
     return output_path

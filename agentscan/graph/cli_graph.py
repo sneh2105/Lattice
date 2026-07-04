@@ -15,6 +15,8 @@ import json
 import sys
 from pathlib import Path
 
+from agentscan._fileutil import atomic_write_text
+
 from agentscan.scanners.agent_scanner import scan_agent_config
 from agentscan.graph.engine import build_graph_from_scan, graph_paths_to_attack_paths
 from agentscan.graph.visualiser import render_terminal, render_html
@@ -61,7 +63,7 @@ def cmd_graph_agent(args):
     if args.export_html or getattr(args, "open_browser", False):
         html = render_html(graph, paths, title=f"AgentScan -- {args.config}")
         out_path = args.export_html or "agentscan_attack_graph.html"
-        Path(out_path).write_text(html, encoding="utf-8")
+        atomic_write_text(out_path, html, encoding="utf-8")
         print(f"  Interactive graph -> {out_path}")
         if getattr(args, "open_browser", False):
             try:
@@ -126,7 +128,7 @@ def cmd_graph_mcp(args):
 
     if args.export_html:
         html = render_html(profile.graph, paths, title=f"AgentScan MCP -- {profile.name}")
-        Path(args.export_html).write_text(html, encoding="utf-8")
+        atomic_write_text(args.export_html, html, encoding="utf-8")
         print(f"  Interactive graph -> {args.export_html}")
         print()
 
@@ -315,7 +317,7 @@ def _render_chain_report(report: MCPTrustChainReport, args):
                 for f in report.findings
             ],
         }
-        Path(args.output_file).write_text(_json.dumps(data, indent=2), encoding="utf-8")
+        atomic_write_text(args.output_file, _json.dumps(data, indent=2), encoding="utf-8")
         print(f"  {_col(GREEN, '[OK]')} JSON report -> {args.output_file}")
 
     # -- HTML export ----------------------------------------------------------
@@ -332,7 +334,7 @@ def _render_chain_report(report: MCPTrustChainReport, args):
         from agentscan.graph.engine import AttackGraph
         actual_paths = report.unified_graph.find_attack_paths()
         html = render_html(report.unified_graph, actual_paths, "AgentScan -- Trust Chain")
-        Path(args.export_html).write_text(html, encoding="utf-8")
+        atomic_write_text(args.export_html, html, encoding="utf-8")
         print(f"  {_col(GREEN, '[OK]')} Interactive graph -> {args.export_html}")
 
     footer = "AgentScan v" + __version__ + " - scan took " + str(report.scan_duration_ms) + "ms"

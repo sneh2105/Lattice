@@ -17,6 +17,7 @@ from datetime import date
 from pathlib import Path
 
 from agentscan.models import ScanResult, Severity
+from agentscan._fileutil import atomic_write_text
 
 
 SEVERITY_COLOURS = {
@@ -37,9 +38,13 @@ SEVERITY_BG = {
 
 
 def _esc(s) -> str:
-    """Minimal HTML escaping."""
+    """Minimal HTML escaping. Escapes single quotes too (not just double)
+    as defense-in-depth: current markup only uses double-quoted
+    attributes, but escaping both quote characters means this stays
+    safe if a future edit adds a single-quoted attribute or interpolates
+    this into a JS string context."""
     return (str(s).replace("&", "&amp;").replace("<", "&lt;")
-            .replace(">", "&gt;").replace('"', "&quot;"))
+            .replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;"))
 
 
 def generate_html_report(
@@ -308,5 +313,5 @@ function filterFindings(sev, btn) {{
 </body>
 </html>"""
 
-    Path(output_path).write_text(html, encoding="utf-8")
+    atomic_write_text(output_path, html, encoding="utf-8")
     return output_path

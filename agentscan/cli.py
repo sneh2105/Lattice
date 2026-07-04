@@ -13,6 +13,7 @@ from agentscan.outputs.terminal import render_result
 from agentscan.outputs.json_output import to_json, to_sarif
 from agentscan.outputs.html_report import generate_html_report
 from agentscan.models import Severity
+from agentscan._fileutil import atomic_write_text
 from agentscan.cli_compliance import add_compliance_parser, cmd_map, cmd_dpia, cmd_audit
 from agentscan.graph.cli_graph import (add_graph_parser, cmd_graph_agent, cmd_graph_mcp, cmd_graph_chain,
                                         cmd_graph_trustflow, cmd_graph_escalation, cmd_graph_query)
@@ -118,6 +119,7 @@ Compliance:   agentscan compliance map   ./agent.yaml
     # Exit 2 on scan errors (distinct from exit 1 = findings, exit 0 = clean).
     # This ensures CI/CD gates can distinguish "safe" from "scan failed to run".
     if result.error:
+        print(f"Error: {result.error}", file=sys.stderr)
         sys.exit(2)
 
     # --open: generate HTML and launch browser regardless of --output flag
@@ -158,7 +160,7 @@ Compliance:   agentscan compliance map   ./agent.yaml
     else:
         output = _output(result, args.output, args.verbose)
         if args.output_file:
-            Path(args.output_file).write_text(output, encoding="utf-8")
+            atomic_write_text(args.output_file, output, encoding="utf-8")
             if args.output == "text": print("Results written to " + args.output_file)
         else: print(output)
     if _should_fail(result, args.fail_on): sys.exit(1)
