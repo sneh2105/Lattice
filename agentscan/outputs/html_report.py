@@ -16,6 +16,16 @@ import json
 from datetime import date
 from pathlib import Path
 
+_ASSETS_DIR = Path(__file__).parent / "assets"
+
+
+def _inline_js(filename: str, cdn_fallback: str) -> str:
+    """Read a JS file from the bundled assets dir, fall back to CDN if missing."""
+    asset = _ASSETS_DIR / filename
+    if asset.exists():
+        return "<script>" + asset.read_text(encoding="utf-8") + "</script>"
+    return cdn_fallback
+
 from agentscan.models import ScanResult, Severity
 from agentscan._fileutil import atomic_write_text
 
@@ -127,6 +137,7 @@ def generate_html_report(
     chart_values = [counts["CRITICAL"], counts["HIGH"], counts["MEDIUM"], counts["LOW"]]
     chart_colours = ["#A32D2D", "#BA7517", "#854F0B", "#185FA5"]
 
+    _chartjs_tag = _inline_js("chart.umd.js", '<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>')
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -285,7 +296,7 @@ def generate_html_report(
 
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+{_chartjs_tag}
 <script>
 new Chart(document.getElementById('sevChart'), {{
   type: 'bar',

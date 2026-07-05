@@ -10,8 +10,19 @@ Renders the attack graph as:
 
 from __future__ import annotations
 import json
+from pathlib import Path
 from agentscan.graph.engine import AttackGraph, GraphPath
 from agentscan.graph.nodes import NodeType, EdgeType
+
+_ASSETS_DIR = Path(__file__).parent.parent / "outputs" / "assets"
+
+
+def _inline_js(filename: str, cdn_fallback: str) -> str:
+    """Read a JS file from bundled assets, fall back to CDN if missing."""
+    asset = _ASSETS_DIR / filename
+    if asset.exists():
+        return "<script>" + asset.read_text(encoding="utf-8") + "</script>"
+    return cdn_fallback
 
 
 # ANSI colours
@@ -148,6 +159,7 @@ def render_html(graph: AttackGraph, paths: list[GraphPath], title: str = "AgentS
     node_colors_json = json.dumps(node_colors)
     edge_colors_json = json.dumps(edge_colors)
 
+    _d3_tag = _inline_js("d3.min.js", '<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>')
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -209,7 +221,7 @@ svg {{ width: 100%; height: 100%; }}
     <div id="tooltip"></div>
   </div>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+{_d3_tag}
 <script>
 const nodesData = {nodes_json};
 const edgesData = {edges_json};
