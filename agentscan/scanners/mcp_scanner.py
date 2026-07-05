@@ -277,13 +277,17 @@ def scan_mcp(target: str, timeout: int = 10) -> ScanResult:
             )
     else:
         path = Path(target)
-        if not path.exists():
-            return ScanResult(target=target, scanner_type="mcp_scanner", error=f"File not found: {path}")
+        from agentscan._fileutil import validate_target_file, AgentScanInputError
+        try:
+            validate_target_file(target, command="mcp")
+        except AgentScanInputError as e:
+            return ScanResult(target=target, scanner_type="mcp_scanner", error=str(e))
         try:
             text = path.read_text(encoding="utf-8")
             manifest = yaml.safe_load(text) if path.suffix in (".yaml", ".yml") else json.loads(text)
         except Exception as exc:
-            return ScanResult(target=target, scanner_type="mcp_scanner", error=f"Parse error: {exc}")
+            return ScanResult(target=target, scanner_type="mcp_scanner",
+                              error="Failed to parse manifest: " + str(exc))
 
     if not isinstance(manifest, dict):
         return ScanResult(target=target, scanner_type="mcp_scanner", error="Manifest root must be a mapping")

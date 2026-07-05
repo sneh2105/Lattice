@@ -63,3 +63,60 @@ def atomic_write_bytes(path: str | Path, content: bytes) -> None:
         except OSError:
             pass
         raise
+
+
+# ---------------------------------------------------------------------------
+# Input validation helpers
+# ---------------------------------------------------------------------------
+
+class AgentScanInputError(Exception):
+    """Clean, user-facing input error -- no stack trace, no errno."""
+    pass
+
+
+def validate_target_file(path: str, command: str = "") -> None:
+    """
+    Validate that path is a readable file (not a directory, not missing).
+    Raises AgentScanInputError with a human-readable message if not.
+    Called by every scan command before attempting to open the file.
+    """
+    from pathlib import Path
+    p = Path(path)
+
+    if p.is_dir():
+        hint = ""
+        if command == "agent":
+            hint = (
+                "\n  To scan Python source code:  agentscan source " + path +
+                "\n  To find config files:        agentscan doctor " + path
+            )
+        elif command == "compliance":
+            hint = "\n  Pass a specific YAML/JSON agent config file, not a directory."
+        elif command == "mcp":
+            hint = "\n  Pass a specific MCP manifest JSON file or a live URL."
+        elif command == "graph":
+            hint = "\n  Pass a specific agent config or MCP manifest file."
+        raise AgentScanInputError(
+            "'" + path + "' is a directory, not a file." + hint
+        )
+
+    if not p.exists():
+        raise AgentScanInputError("File not found: '" + path + "'")
+
+    if not p.is_file():
+        raise AgentScanInputError("Not a readable file: '" + path + "'")
+
+
+def validate_source_file(path: str, command: str = "agent") -> None:
+    """
+    For commands that expect config files (YAML/JSON), detect if the user
+    accidentally passed a .py source file and redirect them clearly.
+    """
+    from pathlib import Path
+    p = Path(path)
+    if p.suffix == ".py":
+        raise AgentScanInputError(
+            "'" + path + "' is a Python source file.\n"
+            "  agentscan " + command + " expects a YAML or JSON agent config file.\n"
+            "  To scan Python source code:  agentscan source " + path
+        )

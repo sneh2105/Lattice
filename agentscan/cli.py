@@ -342,6 +342,12 @@ Not sure where to start? Run: agentscan doctor .
             print("  To scan source code:    agentscan source " + args.config)
             print("  To find configs:        agentscan doctor " + args.config)
             sys.exit(2)
+        if p.suffix == ".py":
+            print("\n  Error: '" + args.config + "' is a Python source file.")
+            print("  agentscan agent expects a YAML or JSON agent config file.")
+            print("  To scan Python source code:")
+            print("    agentscan source " + args.config)
+            sys.exit(2)
         result = scan_agent_config(args.config)
 
     elif args.command == "source":

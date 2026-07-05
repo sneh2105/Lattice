@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 from agentscan.scanners.agent_scanner import scan_agent_config
+from agentscan.models import ScanResult
 from agentscan.scanners.mcp_scanner import scan_mcp
 from agentscan.compliance.framework_mapper import map_findings_to_controls
 from agentscan.compliance.dpia import generate_dpia
@@ -24,22 +25,30 @@ from agentscan.outputs.terminal import _col, BOLD, CYAN, GREEN, ORANGE, RED, DIM
 
 def _detect_scanner(target: str):
     """Auto-detect which scanner to run based on target."""
+    from agentscan._fileutil import validate_target_file, validate_source_file, AgentScanInputError
+
     if target.startswith("http://") or target.startswith("https://"):
         return scan_mcp(target)
+
+    # Validate before attempting I/O
+    try:
+        validate_target_file(target, command="compliance")
+        validate_source_file(target, command="compliance")
+    except AgentScanInputError as e:
+        return ScanResult(target=target, scanner_type="compliance", error=str(e))
+
     path = Path(target)
-    if path.exists():
-        # Sniff content to decide agent vs mcp
-        try:
-            import json, yaml
-            text = path.read_text()
-            data = yaml.safe_load(text) if path.suffix in ('.yaml', '.yml') else json.loads(text)
-            if isinstance(data, dict) and "tools" in data and any(
-                isinstance(t, dict) and "inputSchema" in t for t in data.get("tools", [])
-            ):
-                return scan_mcp(target)
-        except Exception:
-            pass
-        return scan_agent_config(target)
+    # Sniff content to decide agent vs mcp
+    try:
+        import json, yaml
+        text = path.read_text()
+        data = yaml.safe_load(text) if path.suffix in ('.yaml', '.yml') else json.loads(text)
+        if isinstance(data, dict) and "tools" in data and any(
+            isinstance(t, dict) and "inputSchema" in t for t in data.get("tools", [])
+        ):
+            return scan_mcp(target)
+    except Exception:
+        pass
     return scan_agent_config(target)
 
 

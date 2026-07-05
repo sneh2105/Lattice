@@ -180,14 +180,19 @@ def scan_agent_config(path: str | Path) -> ScanResult:
     Accepts YAML or JSON agent configuration files.
     Returns a ScanResult with findings and attack paths.
     """
+    from agentscan._fileutil import validate_target_file, validate_source_file, AgentScanInputError
     start = time.monotonic()
     path = Path(path)
 
-    if not path.exists():
+    # Clean input validation before attempting any file I/O
+    try:
+        validate_target_file(str(path), command="agent")
+        validate_source_file(str(path), command="agent")
+    except AgentScanInputError as e:
         return ScanResult(
             target=str(path),
             scanner_type="agent_scanner",
-            error=f"File not found: {path}",
+            error=str(e),
         )
 
     # Parse config
@@ -201,7 +206,8 @@ def scan_agent_config(path: str | Path) -> ScanResult:
         return ScanResult(
             target=str(path),
             scanner_type="agent_scanner",
-            error=f"Failed to parse config: {exc}",
+            error="Failed to parse config as YAML/JSON: " + str(exc) +
+                  "\n  Make sure this is a valid YAML or JSON agent config file.",
         )
 
     if not isinstance(config, dict):
