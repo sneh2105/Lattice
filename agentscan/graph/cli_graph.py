@@ -62,19 +62,33 @@ def cmd_graph_agent(args):
 
     if args.export_html or getattr(args, "open_browser", False):
         html = render_html(graph, paths, title=f"AgentScan -- {args.config}")
-        out_path = args.export_html or "agentscan_attack_graph.html"
+        if args.export_html:
+            out_path = args.export_html
+        elif getattr(args, "open_browser", False):
+            # Write to temp so nothing clutters the working directory
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(
+                suffix=".html", prefix="agentscan_graph_", delete=False
+            )
+            out_path = tmp.name
+            tmp.close()
+        else:
+            out_path = "agentscan_attack_graph.html"
         atomic_write_text(out_path, html, encoding="utf-8")
+        abs_path = Path(out_path).resolve()
+        uri = abs_path.as_uri()
         print(f"  Interactive graph -> {out_path}")
         if getattr(args, "open_browser", False):
             try:
                 import webbrowser
-                abs_path = Path(out_path).resolve()
-                # Use pathlib to build a proper file:// URL on all platforms
-                url = abs_path.as_uri()
-                webbrowser.open(url)
-                print("  Opened in your default browser.")
+                webbrowser.open(uri)
+                print("  Opening in your browser...")
+                print("  If it doesn't open: copy this path and paste into Chrome/Edge:")
+                print("  " + uri)
             except Exception:
-                print("  Could not open browser automatically. Open the file manually:")
+                print("  Could not open browser automatically.")
+                print("  Copy this path and paste into Chrome/Edge:")
+                print("  " + uri)
         print()
 
 
