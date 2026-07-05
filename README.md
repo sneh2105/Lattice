@@ -9,7 +9,7 @@ it shows you the complete chain from a malicious prompt to a stolen credential.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-151%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-223%20passing-brightgreen)](tests/)
 
 </div>
 
@@ -35,8 +35,8 @@ See [`docs/ADVANCED.md`](docs/ADVANCED.md).
 
 ## Try it with zero setup
 
-No agent of your own handy? Run AgentScan against seven bundled, intentionally
-vulnerable agents — no cloning, no config, just installed and run:
+No agent of your own handy? Run AgentScan against 12 intentionally
+vulnerable agents -- no cloning, no config, just installed and run:
 
 ```bash
 pip install -e .
@@ -52,7 +52,7 @@ agentscan demo
   Safe scoped search agent
   ✓ Risk 0/100  ·  0 finding(s) — no false positives
 
-  ✓ AgentScan correctly identified all 11 attack patterns with zero false positives.
+  ✓ AgentScan correctly identified all 12 attack patterns with zero false positives.
 ```
 
 `agentscan benchmark` runs the same suite in a compact pass/fail table — see

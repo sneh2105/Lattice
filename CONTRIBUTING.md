@@ -1,46 +1,99 @@
 # Contributing to AgentScan
 
-Thanks for contributing. AgentScan is Apache 2.0 licensed.
+Thanks for your interest. AgentScan is a focused tool — contributions that sharpen
+detection accuracy, expand framework coverage, or improve the evaluation kit are
+most welcome. Feature requests that broaden scope significantly (e.g. a web UI,
+a server backend) are better discussed as issues first.
 
-## Setup
+---
+
+## Before you start
 
 ```bash
 git clone https://github.com/sneh2105/agentscan
 cd agentscan
 pip install -e ".[dev]"
-pytest tests/unit/
+pytest tests/unit/ -q   # must see 223 passed before you change anything
 ```
 
-## Priority areas
+---
 
-- **Agent config parsers** — AutoGen, LangGraph, CrewAI format support in `agent_scanner.py`
-- **npm scanner** — `supply_chain_scanner.py` has a placeholder; implement it
-- **MITRE ATLAS mappings** — expand the technique library in `graph/nodes.py`
-- **MCP server signatures** — add new dangerous tool patterns to `mcp_scanner_v2.py`
-- **Integration tests** — scan real public MCP servers, add to `tests/integration/`
+## What to contribute
 
-## Adding a finding
+### 1. New framework support
+If AgentScan misses a framework you use, the fix is usually small:
 
-Every finding must have:
-- `evidence` — at least one `Evidence` object with source, field, observed_value, explanation
-- `remediation` — a concrete action (not "review this")
-- `mitre_atlas` — at least one MITRE ATLAS technique
-- `confidence` — HIGH only if structural evidence; MEDIUM for heuristics
+- Add the tool registration pattern to `agentscan/scanners/source_scanner.py`
+  (`TOOL_DECORATOR_NAMES`, `TOOL_REGISTRATION_CALLS`, or a new `visit_*` method)
+- Add detection to `agentscan/doctor.py` (`FRAMEWORK_SIGNATURES`)
+- Write a test in `tests/unit/test_source_scanner.py`
+- Add a fixture file to `examples/test_batch/`
 
-## Running tests
+If the framework uses a config/JSON format rather than Python source, the fix
+goes in `agentscan/scanners/agent_scanner.py` (`_extract_tools`).
 
+### 2. Capability keyword improvements
+If a tool is being false-positived (flagged when it shouldn't be) or missed
+(not flagged when it should be), the keyword lists live in
+`agentscan/scanners/capabilities.py` — the single canonical source of truth.
+All three scanners import from there.
+
+Important constraints:
+- Do not add bare verbs like `"run"` or `"execute"` to `shell_exec` keywords.
+  Use the token co-occurrence approach (`_has_shell_token_pair`) instead.
+- Do not add bare nouns like `"refund"` to `financial_transaction` keywords.
+  Require verb-noun compounds like `"issue_refund"`, `"process_refund"`.
+
+### 3. New eval-kit scenarios
+A well-documented attack scenario is worth more than a unit test alone:
+
+- Create `examples/vulnerable_agents/NN_name/` with fixture + `README.md`
+- The README must document: attack chain, run command, expected result, fix
+- Add to `SCENARIOS` in `agentscan/benchmark.py`
+- Run `agentscan benchmark` — all scenarios must pass
+- Update the scenario count in `README.md` and `tests/unit/test_benchmark_cli.py`
+
+### 4. Bug reports
+File an issue with:
+- The exact command you ran
+- The input file (anonymised if necessary)
+- The output you got vs what you expected
+- Your Python version and OS
+
+---
+
+## Code standards
+
+- **Pure ASCII in all `.py` files.** Windows reads source as cp1252 by default.
+  Non-ASCII characters cause `SyntaxError` on Windows even if they work on Linux.
+- **No f-strings with nested same-type quotes** (`f"...c(X, "str")..."`).
+  Python 3.10/3.11 rejects these. Python 3.12 silently accepts them.
+  Use string concatenation or single-quote f-strings instead.
+- **Path joining in tests**: use `str(Path(tmpdir) / "filename")`,
+  not `f"{tmpdir}/filename"` — mixed separators break on Windows.
+- **Subprocess calls with encoding**: any `subprocess.run(..., text=True)` must
+  also pass `encoding="utf-8"` or it will fail on Windows terminals.
+- All file writes use `agentscan._fileutil.atomic_write_text()` for safety.
+
+Run the full suite before opening a PR:
 ```bash
-pytest tests/unit/ -v
-pytest tests/unit/ --cov=agentscan --cov-report=term-missing
+pytest tests/unit/ -q
+agentscan benchmark
 ```
 
-## Pull requests
+---
 
-- One feature or fix per PR
-- Tests required for new scanners or graph features
-- Update `CHANGELOG.md` with a one-line summary
+## Pull request checklist
+
+- [ ] `pytest tests/unit/ -q` passes (223 tests)
+- [ ] `agentscan benchmark` shows 12/12
+- [ ] New functionality has a test in `tests/unit/`
+- [ ] No non-ASCII characters introduced in `.py` files
+- [ ] No f-strings with nested same-type quote literals
+
+---
 
 ## Questions or ideas
 
-Open a GitHub issue, or email [sneh2105@gmail.com](mailto:sneh2105@gmail.com).
+Open a GitHub issue, or email [sneh2105@gmail.com](mailto:sneh2105@gmail.com).  
 Built by [Sneh Singh](https://www.linkedin.com/in/sneh-singh-cs/).
