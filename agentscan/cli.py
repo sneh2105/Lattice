@@ -28,68 +28,89 @@ def _output(result, fmt, verbose):
     if fmt == "sarif":  return to_sarif(result)
     return render_result(result, verbose=verbose)
 
-def _open_in_browser(uri: str) -> None:
+def _serve_and_open(html_path: str) -> None:
     """
-    Open a file:// URI in the default browser.
-    Works on Windows, Mac, and Linux without relying on webbrowser.open()
-    which silently fails on many Windows machines.
+    Serve the HTML file over http://localhost so browsers don't block
+    inline scripts (file:// URLs trigger CSP restrictions in Chrome/Edge
+    that prevent inline JS from running, causing blank graphs/charts).
+    Starts a one-shot HTTP server, opens the browser, then shuts down
+    after the first request is served.
     """
-    import subprocess, sys, os
+    import http.server, threading, socket, sys, subprocess, time
+    from pathlib import Path
 
-    # Windows: use 'start' which always works for local files
-    if sys.platform == "win32":
-        try:
-            # Convert file:///C:/... back to C:\... for the start command
-            # start "" handles spaces in paths correctly
-            local_path = uri.replace("file:///", "").replace("/", "\\")
-            subprocess.Popen(["cmd", "/c", "start", "", local_path],
+    html_path = str(Path(html_path).resolve())
+    directory = str(Path(html_path).parent)
+    filename = Path(html_path).name
+
+    # Find a free port
+    with socket.socket() as s:
+        s.bind(("", 0))
+        port = s.getsockname()[1]
+
+    url = "http://localhost:" + str(port) + "/" + filename
+
+    class SilentHandler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=directory, **kwargs)
+        def log_message(self, fmt, *args):
+            pass  # suppress server log output
+
+    server = http.server.HTTPServer(("localhost", port), SilentHandler)
+
+    def shutdown_after_serve():
+        # Give browser time to load all resources, then shut down
+        time.sleep(4)
+        server.shutdown()
+
+    threading.Thread(target=shutdown_after_serve, daemon=True).start()
+
+    print("  Serving report at " + url)
+
+    # Open browser
+    try:
+        if sys.platform == "win32":
+            subprocess.Popen(["cmd", "/c", "start", "", url],
                            shell=False, stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL)
-            print("  Report opened in your browser.")
-            return
-        except Exception:
-            pass
-        # Fallback: try PowerShell
-        try:
-            subprocess.Popen(["powershell", "-Command",
-                            f"Start-Process '{uri}'"],
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", url],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print("  Report opened in your browser.")
-            return
-        except Exception:
-            pass
-
-    # Mac
-    elif sys.platform == "darwin":
-        try:
-            subprocess.Popen(["open", uri],
+        else:
+            subprocess.Popen(["xdg-open", url],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print("  Report opened in your browser.")
-            return
-        except Exception:
-            pass
+        print("  Opening in your browser...")
+    except Exception:
+        print("  Open this URL in your browser: " + url)
 
-    # Linux / fallback
+    # Serve until shutdown (blocks for ~4 seconds)
+    server.serve_forever()
+
+
+def _open_in_browser(uri: str) -> None:
+    """Wrapper: extract local path from file:// URI and serve over localhost."""
+    if uri.startswith("file:///"):
+        import sys
+        if sys.platform == "win32":
+            local_path = uri.replace("file:///", "").replace("/", "\\")
+        else:
+            local_path = uri.replace("file://", "")
+        _serve_and_open(local_path)
     else:
+        # Already an http URL, just open directly
+        import subprocess, sys
         try:
-            subprocess.Popen(["xdg-open", uri],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print("  Report opened in your browser.")
-            return
+            if sys.platform == "win32":
+                subprocess.Popen(["cmd", "/c", "start", "", uri], shell=False,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", uri],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                subprocess.Popen(["xdg-open", uri],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
-            pass
-        try:
-            import webbrowser
-            webbrowser.open(uri)
-            print("  Report opened in your browser.")
-            return
-        except Exception:
-            pass
-
-    # If everything failed, just tell the user
-    print("  Could not open browser automatically.")
-    print("  Paste this into Chrome/Edge/Firefox to view the report:")
-    print("  " + uri)
+            print("  Open this URL: " + uri)
 
 
 def _is_html(fmt):

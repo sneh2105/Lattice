@@ -200,7 +200,7 @@ svg {{ width: 100%; height: 100%; }}
 </head>
 <body>
 <div id="header">
-  <h1>?? AgentScan -- Attack Graph</h1>
+  <h1>AgentScan -- Attack Graph</h1>
   <span class="badge">{len(paths)} critical path(s)</span>
   <span style="color:#8b949e;font-size:13px;margin-left:auto">{len(graph_data['nodes'])} nodes - {len(graph_data['edges'])} edges</span>
 </div>

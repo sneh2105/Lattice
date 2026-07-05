@@ -79,8 +79,8 @@ def cmd_graph_agent(args):
         uri = abs_path.as_uri()
         print(f"  Interactive graph -> {out_path}")
         if getattr(args, "open_browser", False):
-            from agentscan.cli import _open_in_browser
-            _open_in_browser(uri)
+            from agentscan.cli import _serve_and_open
+            _serve_and_open(out_path)
         print()
 
 
