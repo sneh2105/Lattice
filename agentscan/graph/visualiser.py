@@ -183,7 +183,7 @@ body {{ background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui,
 #legend {{ margin-top: 20px; }}
 .legend-item {{ display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 11px; color: #8b949e; }}
 .legend-dot {{ width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }}
-#graph {{ flex: 1; position: relative; }}
+#graph {{ flex: 1; position: relative; min-height: 500px; }}
 svg {{ width: 100%; height: 100%; }}
 .node circle {{ stroke-width: 2; cursor: pointer; transition: r 0.2s; }}
 .node circle:hover {{ stroke-width: 3; }}
@@ -223,14 +223,15 @@ svg {{ width: 100%; height: 100%; }}
 </div>
 {_d3_tag}
 <script>
+function initGraph() {{
 const nodesData = {nodes_json};
 const edgesData = {edges_json};
 const pathsData = {paths_json};
 const nodeColors = {node_colors_json};
 const edgeColors = {edge_colors_json};
 
-const width = document.getElementById('graph').clientWidth;
-const height = document.getElementById('graph').clientHeight;
+const width = document.getElementById('graph').clientWidth || document.getElementById('graph').offsetWidth || (window.innerWidth - 340);
+const height = document.getElementById('graph').clientHeight || document.getElementById('graph').offsetHeight || (window.innerHeight - 60);
 
 const svg = d3.select('#graph').append('svg');
 const g = svg.append('g');
@@ -319,6 +320,9 @@ pathsData.forEach((p, i) => {{
   }};
   pathList.appendChild(card);
 }});
+}} // end initGraph
+if (document.readyState === 'complete') {{ initGraph(); }}
+else {{ window.addEventListener('load', initGraph); }}
 </script>
 </body>
 </html>"""
