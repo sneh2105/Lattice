@@ -28,6 +28,70 @@ def _output(result, fmt, verbose):
     if fmt == "sarif":  return to_sarif(result)
     return render_result(result, verbose=verbose)
 
+def _open_in_browser(uri: str) -> None:
+    """
+    Open a file:// URI in the default browser.
+    Works on Windows, Mac, and Linux without relying on webbrowser.open()
+    which silently fails on many Windows machines.
+    """
+    import subprocess, sys, os
+
+    # Windows: use 'start' which always works for local files
+    if sys.platform == "win32":
+        try:
+            # Convert file:///C:/... back to C:\... for the start command
+            # start "" handles spaces in paths correctly
+            local_path = uri.replace("file:///", "").replace("/", "\\")
+            subprocess.Popen(["cmd", "/c", "start", "", local_path],
+                           shell=False, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
+            print("  Report opened in your browser.")
+            return
+        except Exception:
+            pass
+        # Fallback: try PowerShell
+        try:
+            subprocess.Popen(["powershell", "-Command",
+                            f"Start-Process '{uri}'"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print("  Report opened in your browser.")
+            return
+        except Exception:
+            pass
+
+    # Mac
+    elif sys.platform == "darwin":
+        try:
+            subprocess.Popen(["open", uri],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print("  Report opened in your browser.")
+            return
+        except Exception:
+            pass
+
+    # Linux / fallback
+    else:
+        try:
+            subprocess.Popen(["xdg-open", uri],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print("  Report opened in your browser.")
+            return
+        except Exception:
+            pass
+        try:
+            import webbrowser
+            webbrowser.open(uri)
+            print("  Report opened in your browser.")
+            return
+        except Exception:
+            pass
+
+    # If everything failed, just tell the user
+    print("  Could not open browser automatically.")
+    print("  Paste this into Chrome/Edge/Firefox to view the report:")
+    print("  " + uri)
+
+
 def _is_html(fmt):
     return fmt == "html"
 
@@ -150,13 +214,7 @@ Compliance:   agentscan compliance map   ./agent.yaml
         print("  Report       : " + uri)
 
         if open_browser:
-            try:
-                import webbrowser
-                webbrowser.open(uri)
-                print("  Opening in your browser...")
-            except Exception:
-                print("  Could not open browser automatically.")
-                print("  Copy the path above and paste it into your browser.")
+            _open_in_browser(uri)
     else:
         output = _output(result, args.output, args.verbose)
         if args.output_file:

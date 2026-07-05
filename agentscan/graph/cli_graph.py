@@ -79,16 +79,8 @@ def cmd_graph_agent(args):
         uri = abs_path.as_uri()
         print(f"  Interactive graph -> {out_path}")
         if getattr(args, "open_browser", False):
-            try:
-                import webbrowser
-                webbrowser.open(uri)
-                print("  Opening in your browser...")
-                print("  If it doesn't open: copy this path and paste into Chrome/Edge:")
-                print("  " + uri)
-            except Exception:
-                print("  Could not open browser automatically.")
-                print("  Copy this path and paste into Chrome/Edge:")
-                print("  " + uri)
+            from agentscan.cli import _open_in_browser
+            _open_in_browser(uri)
         print()
 
 

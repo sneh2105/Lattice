@@ -105,16 +105,16 @@ def test_no_false_paths_without_entry():
 
 
 def test_open_flag_creates_default_filename():
-    """agentscan graph agent --open should write agentscan_attack_graph.html to cwd."""
+    """agentscan graph agent --open should write to temp and print the path."""
     import subprocess, os
     from pathlib import Path
-    # Run from the repo root so the file lands in a known location
     repo_root = Path(__file__).parent.parent.parent
     result = subprocess.run(
         ["agentscan", "graph", "agent", "examples/agent_configs/dangerous_agent.yaml", "--open"],
         capture_output=True, text=True, encoding="utf-8", cwd=str(repo_root),
     )
-    expected_file = repo_root / "agentscan_attack_graph.html"
     assert result.returncode == 0, f"Command failed: {result.stderr[:200]}"
-    assert expected_file.exists(), f"File not found: {expected_file}"
-    expected_file.unlink()  # clean up
+    # --open now writes to a temp file and prints "Interactive graph -> <path>"
+    assert "Interactive graph ->" in result.stdout, (
+        f"Expected file path in output, got: {result.stdout[:300]}"
+    )
