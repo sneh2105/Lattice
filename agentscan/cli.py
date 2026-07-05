@@ -60,7 +60,7 @@ def _serve_and_open(html_path: str) -> None:
 
     def shutdown_after_serve():
         # Give browser time to load all resources, then shut down
-        time.sleep(4)
+        time.sleep(30)
         server.shutdown()
 
     threading.Thread(target=shutdown_after_serve, daemon=True).start()

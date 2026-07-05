@@ -218,14 +218,19 @@ svg {{ width: 100%; height: 100%; }}
     </div>
   </div>
   <div id="graph">
+    <div id="debug" style="position:absolute;top:10px;left:10px;z-index:999;background:rgba(0,0,0,0.8);padding:10px;max-width:90%;font-family:monospace;font-size:12px;color:white;"></div>
     <div id="tooltip"></div>
   </div>
 </div>
 {_d3_tag}
 <script>
 function initGraph() {{
+  window.onerror = function(msg, src, ln, col, err) {{ var d = document.getElementById("debug"); if(d) d.innerHTML = "<b style='color:red'>JS ERROR: " + msg + " line " + ln + "</b>"; }};
+  try {{
 const nodesData = {nodes_json};
 const edgesData = {edges_json};
+// Remap src/dst to source/target for D3 forceLink
+const linksData = edgesData.map(e => ({{source: e.src, target: e.dst, type: e.type, label: e.label, confidence: e.confidence, mitre: e.mitre}}));
 const pathsData = {paths_json};
 const nodeColors = {node_colors_json};
 const edgeColors = {edge_colors_json};
@@ -255,13 +260,13 @@ nodesData.forEach(n => nodeById[n.id] = n);
 
 // Simulation
 const sim = d3.forceSimulation(nodesData)
-  .force('link', d3.forceLink(edgesData).id(d => d.id).distance(120))
+  .force('link', d3.forceLink(linksData).id(d => d.id).distance(120))
   .force('charge', d3.forceManyBody().strength(-400))
   .force('center', d3.forceCenter(width/2, height/2))
   .force('collision', d3.forceCollide(30));
 
 // Links
-const link = g.selectAll('.link').data(edgesData).enter().append('line')
+const link = g.selectAll('.link').data(linksData).enter().append('line')
   .attr('class', d => `link ${{d.type}}`)
   .style('stroke', d => edgeColors[d.type] || '#8b949e')
   .style('stroke-width', d => ['exfiltrates','executes','escalates'].includes(d.type) ? 2.5 : 1.5)
@@ -320,6 +325,7 @@ pathsData.forEach((p, i) => {{
   }};
   pathList.appendChild(card);
 }});
+  }} catch(e) {{ var d = document.getElementById("debug"); if(d) d.innerHTML = "<b style='color:red;font-size:13px'>Error: " + e.message + "</b>"; console.error(e); }}
 }} // end initGraph
 if (document.readyState === 'complete') {{ initGraph(); }}
 else {{ window.addEventListener('load', initGraph); }}
