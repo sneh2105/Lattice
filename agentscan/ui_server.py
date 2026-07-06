@@ -71,6 +71,66 @@ def _result_to_dict(result) -> dict:
     }
 
 
+def _clone_and_scan(github_url: str) -> dict:
+    """
+    Clone a GitHub repo to a temp directory and scan it.
+    Supports:
+      https://github.com/user/repo
+      https://github.com/user/repo/tree/main/subdir
+      github.com/user/repo  (no protocol)
+    Returns the scan result dict with an extra 'cloned_from' field.
+    """
+    import subprocess, tempfile, shutil, re
+
+    url = github_url.strip()
+    # Normalize: add https:// if missing
+    if not url.startswith("http"):
+        url = "https://" + url
+
+    # Extract subdirectory if URL points into a tree
+    subdir = None
+    tree_match = re.search(r"/tree/[^/]+/(.+)", url)
+    if tree_match:
+        subdir = tree_match.group(1)
+        # Strip the tree path to get the bare repo URL
+        url = re.sub(r"/tree/.+", "", url)
+
+    # Strip .git suffix confusion and trailing slashes
+    url = url.rstrip("/")
+    if not url.endswith(".git"):
+        url = url + ".git"
+
+    tmp = tempfile.mkdtemp(prefix="agentscan_gh_")
+    try:
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", "--quiet", url, tmp],
+            capture_output=True, text=True, timeout=120
+        )
+        if result.returncode != 0:
+            shutil.rmtree(tmp, ignore_errors=True)
+            err = result.stderr.strip() or "git clone failed"
+            return {"error": "Could not clone repository:\n" + err, "type": "unknown"}
+
+        scan_path = str(Path(tmp) / subdir) if subdir else tmp
+
+        if not Path(scan_path).exists():
+            shutil.rmtree(tmp, ignore_errors=True)
+            return {"error": "Subdirectory not found in repo: " + (subdir or ""), "type": "unknown"}
+
+        scan_result = _auto_detect_and_scan(scan_path)
+        scan_result["cloned_from"] = github_url
+        scan_result["cloned_path"] = scan_path
+        return scan_result
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(tmp, ignore_errors=True)
+        return {"error": "Clone timed out (120s). Try a smaller repo or a specific subdirectory.", "type": "unknown"}
+    except Exception as e:
+        shutil.rmtree(tmp, ignore_errors=True)
+        return {"error": str(e), "type": "unknown"}
+    # Note: temp dir intentionally left for compliance/graph follow-up calls
+    # It will be cleaned by OS on next boot or explicit cleanup
+
+
 def _auto_detect_and_scan(target: str) -> dict:
     """
     Auto-detect what kind of target this is and route to the right scanner.
@@ -229,7 +289,12 @@ def create_app(version: str = "0.2.6") -> "Flask":
                 )
                 return jsonify({"type": "demo", "output": r.stdout + r.stderr})
 
-            result = _auto_detect_and_scan(target)
+            # GitHub URL detection
+            import re
+            if re.search(r"github[.]com/[^/]+/[^/]+", target):
+                result = _clone_and_scan(target)
+            else:
+                result = _auto_detect_and_scan(target)
             return jsonify(result)
         except Exception as e:
             import traceback

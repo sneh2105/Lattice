@@ -338,31 +338,55 @@ body {
     <div class="sidebar-block">
       <div class="sidebar-label">Scan anything</div>
 
-      <div class="drop-zone" id="drop-zone"
-           onclick="document.getElementById('file-picker').click()"
-           ondragover="ev.preventDefault();ev.dataTransfer.dropEffect='copy';this.classList.add('drag-over')"
-           ondragleave="this.classList.remove('drag-over')"
-           ondrop="handleDrop(event)">
-        <div class="drop-icon">&#128194;</div>
-        <div class="drop-title">Drop a file or folder</div>
-        <div class="drop-hint">Python files, YAML/JSON configs,<br>MCP manifests — auto-detected</div>
-      </div>
-      <input type="file" id="file-picker" style="display:none" multiple onchange="handleFilePick(event)">
-
-      <div class="path-row">
-        <input class="path-input" id="path-input" placeholder="Paste a path or URL..."
-               oninput="onPathChange()" onkeydown="if(event.key==='Enter') runScan()">
-        <button class="icon-btn" title="Paste from clipboard" onclick="pasteClip()">&#128203;</button>
+      <!-- Input mode selector -->
+      <div style="display:flex;gap:4px;margin-bottom:10px">
+        <button class="pkg-tab active" onclick="setInputMode(this,'github')" id="mode-github">GitHub</button>
+        <button class="pkg-tab" onclick="setInputMode(this,'local')" id="mode-local">Local Path</button>
+        <button class="pkg-tab" onclick="setInputMode(this,'url')" id="mode-url">URL / MCP</button>
+        <button class="pkg-tab" onclick="setInputMode(this,'pkg')" id="mode-pkg">Package</button>
       </div>
 
-      <div class="detected-badge" id="detected-badge" style="display:none">
-        Auto-detected: <span id="detected-type"></span>
+      <!-- GitHub input (default) -->
+      <div id="input-github">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Paste any GitHub repo or folder URL</div>
+        <div class="path-row">
+          <input class="path-input" id="github-input" placeholder="github.com/user/repo"
+                 onkeydown="if(event.key==='Enter') runScan()">
+          <button class="icon-btn" title="Paste" onclick="pasteClipTo('github-input')">&#128203;</button>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:5px;line-height:1.7">
+          github.com/openai/openai-python<br>
+          github.com/user/repo/tree/main/src/agents/
+        </div>
       </div>
 
-      <!-- Package search -->
-      <div class="pkg-section">
-        <div class="sidebar-label" style="margin-bottom:6px">Or scan a package</div>
-        <div class="pkg-tabs">
+      <!-- Local path input -->
+      <div id="input-local" style="display:none">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Path to a file or folder on this machine</div>
+        <div class="path-row">
+          <input class="path-input" id="path-input" placeholder="C:\\projects\\my-agent\\"
+                 oninput="onPathChange()" onkeydown="if(event.key==='Enter') runScan()">
+          <button class="icon-btn" title="Paste" onclick="pasteClipTo('path-input')">&#128203;</button>
+        </div>
+        <div class="detected-badge" id="detected-badge" style="display:none">
+          Auto-detected: <span id="detected-type"></span>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:5px">In Explorer: click address bar, copy the path</div>
+      </div>
+
+      <!-- URL input -->
+      <div id="input-url" style="display:none">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Live MCP server endpoint</div>
+        <div class="path-row">
+          <input class="path-input" id="url-input" placeholder="https://mcp.example.com"
+                 onkeydown="if(event.key==='Enter') runScan()">
+          <button class="icon-btn" title="Paste" onclick="pasteClipTo('url-input')">&#128203;</button>
+        </div>
+      </div>
+
+      <!-- Package input -->
+      <div id="input-pkg" style="display:none">
+        <div class="pkg-tabs" style="margin-bottom:8px">
           <button class="pkg-tab active" onclick="setPkgType(this,'pypi')">PyPI</button>
           <button class="pkg-tab" onclick="setPkgType(this,'npm')">npm</button>
           <button class="pkg-tab" onclick="setPkgType(this,'hf')">HuggingFace</button>
@@ -375,6 +399,7 @@ body {
         </div>
       </div>
 
+      <div style="height:10px"></div>
       <button class="scan-btn" id="scan-btn" onclick="runScan()">Scan</button>
       <div style="margin-top:8px;text-align:center">
         <button class="btn-sm" onclick="runDemo()" style="font-size:11px;width:100%">Run built-in demo (12 scenarios)</button>
@@ -443,36 +468,39 @@ function showError(msg) {
   showContent('<div class="error-card"><div class="error-title">Error</div><div class="error-body">'+esc(msg)+'</div></div>');
 }
 
-// ─── Drop / paste / file pick ───────────────────────────────────────
-function handleDrop(ev) {
-  ev.preventDefault();
-  document.getElementById('drop-zone').classList.remove('drag-over');
-  const items = ev.dataTransfer.items;
-  if (!items || !items.length) return;
-  const entry = items[0].webkitGetAsEntry ? items[0].webkitGetAsEntry() : null;
-  if (entry) {
-    document.getElementById('path-input').value = entry.fullPath || entry.name;
-    onPathChange();
-  } else if (ev.dataTransfer.files.length) {
-    document.getElementById('path-input').value = ev.dataTransfer.files[0].name;
-    onPathChange();
+// ─── Input mode switching ────────────────────────────────────────────
+let inputMode = 'github';
+
+function setInputMode(btn, mode) {
+  document.querySelectorAll('[id^="mode-"]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  ['github','local','url','pkg'].forEach(m => {
+    const el = document.getElementById('input-' + m);
+    if (el) el.style.display = m === mode ? '' : 'none';
+  });
+  inputMode = mode;
+}
+
+function getActiveTarget() {
+  if (inputMode === 'github') return document.getElementById('github-input').value.trim();
+  if (inputMode === 'local') return document.getElementById('path-input').value.trim();
+  if (inputMode === 'url') return document.getElementById('url-input').value.trim();
+  if (inputMode === 'pkg') {
+    const pkg = document.getElementById('pkg-input').value.trim();
+    return pkg ? pkgType + ':' + pkg : '';
   }
+  return '';
 }
 
-function handleFilePick(ev) {
-  const f = ev.target.files[0];
-  if (f) { document.getElementById('path-input').value = f.name; onPathChange(); }
-}
-
-async function pasteClip() {
+async function pasteClipTo(id) {
   try {
     const t = await navigator.clipboard.readText();
-    document.getElementById('path-input').value = t.trim();
-    onPathChange();
-  } catch(e) { alert('Paste with Ctrl+V into the path box'); }
+    const el = document.getElementById(id);
+    if (el) { el.value = t.trim(); if (id === 'path-input') onPathChange(); }
+  } catch(e) { alert('Use Ctrl+V to paste into the input field'); }
 }
 
-// ─── Auto-detect input type ─────────────────────────────────────────
+// ─── Auto-detect for local path ──────────────────────────────────────
 function onPathChange() {
   const val = document.getElementById('path-input').value.trim();
   const badge = document.getElementById('detected-badge');
@@ -480,10 +508,10 @@ function onPathChange() {
   if (!val) { badge.style.display = 'none'; return; }
   let detected = '';
   if (val.startsWith('pypi:') || val.startsWith('npm:') || val.startsWith('hf:') || val.startsWith('dataset:')) detected = 'Supply chain package';
-  else if (val.startsWith('http')) detected = 'MCP server (live URL)';
+  else if (val.startsWith('http')) detected = 'URL / MCP server';
   else if (val.endsWith('.py')) detected = 'Python source file';
   else if (val.endsWith('.yaml') || val.endsWith('.yml') || val.endsWith('.json')) detected = 'Agent config / manifest';
-  else if (!val.includes('.')) detected = 'Directory (source scan)';
+  else if (!val.includes('.') || val.endsWith('\\') || val.endsWith('/')) detected = 'Folder (source scan)';
   if (detected) { typeSpan.textContent = detected; badge.style.display = 'inline-flex'; }
   else { badge.style.display = 'none'; }
 }
@@ -498,17 +526,24 @@ function setPkgType(btn, type) {
 
 // ─── Scan ────────────────────────────────────────────────────────────
 async function runScan() {
-  const target = document.getElementById('path-input').value.trim();
-  if (!target) { showError('Please enter a path, URL, or package identifier'); return; }
+  const target = getActiveTarget();
+  if (!target) {
+    const hints = {
+      github: 'Paste a GitHub URL like: github.com/user/repo',
+      local: 'Enter a file or folder path',
+      url: 'Enter an MCP server URL like: https://mcp.example.com',
+      pkg: 'Enter a package name',
+    };
+    showError(hints[inputMode] || 'Enter a target to scan');
+    return;
+  }
   await _scan(target);
 }
 
 async function runPkgScan() {
   const pkg = document.getElementById('pkg-input').value.trim();
   if (!pkg) return;
-  const target = pkgType + ':' + pkg;
-  document.getElementById('path-input').value = target;
-  await _scan(target);
+  await _scan(pkgType + ':' + pkg);
 }
 
 async function runDemo() {
