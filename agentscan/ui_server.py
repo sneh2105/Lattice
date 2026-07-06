@@ -1,268 +1,340 @@
 # -*- coding: utf-8 -*-
-"""
-AgentScan Dashboard Backend
-============================
-Flask API server for the web dashboard.
-agentscan ui -> starts this -> opens browser
-"""
+"""AgentScan Dashboard Backend - clean rewrite fixing all known bugs"""
 from __future__ import annotations
-import json
-import os
-import subprocess
-import sys
-import threading
-import time
+import json, os, re, subprocess, sys, tempfile, threading, time
 from pathlib import Path
 
 
-def _severity_str(f) -> str:
-    return f.severity.value if hasattr(f.severity, "value") else str(f.severity)
+# ---------------------------------------------------------------------------
+# Serialization helpers
+# ---------------------------------------------------------------------------
 
+def _sev(x) -> str:
+    return x.value if hasattr(x, "value") else str(x)
 
-def _result_to_dict(result) -> dict:
-    def finding_dict(f):
+def _serialize_result(result) -> dict:
+    def finding(f):
         return {
-            "id": f.id,
-            "title": f.title,
-            "severity": _severity_str(f),
-            "confidence": f.confidence.value if hasattr(f.confidence, "value") else str(f.confidence),
+            "id": f.id, "title": f.title,
+            "severity": _sev(f.severity),
+            "confidence": _sev(f.confidence) if hasattr(f, "confidence") else "",
             "explanation": getattr(f, "explanation", ""),
             "impact": getattr(f, "impact", ""),
             "remediation": getattr(f, "remediation", ""),
             "mitre_atlas": list(getattr(f, "mitre_atlas", []) or []),
-            "evidence": [
-                {"source": e.source, "observed_value": str(e.observed_value)}
-                for e in (getattr(f, "evidence", []) or [])
-            ],
+            "evidence": [{"source": e.source, "observed_value": str(e.observed_value)}
+                         for e in (getattr(f, "evidence", []) or [])],
             "tags": list(getattr(f, "tags", []) or []),
         }
-
-    def path_dict(p):
+    def path(p):
         return {
-            "id": p.id,
-            "title": p.title,
-            "severity": p.severity.value if hasattr(p.severity, "value") else str(p.severity),
+            "id": p.id if hasattr(p, "id") else "",
+            "title": p.title if hasattr(p, "title") else str(p),
+            "severity": _sev(p.severity) if hasattr(p, "severity") else "HIGH",
             "entry_point": getattr(p, "entry_point", ""),
             "impact": getattr(p, "impact", ""),
             "description": getattr(p, "description", ""),
             "mitre_atlas": list(getattr(p, "mitre_atlas", []) or []),
-            "steps": [
-                {"id": s.id, "title": s.title,
-                 "severity": s.severity.value if hasattr(s.severity, "value") else str(s.severity)}
-                for s in (getattr(p, "steps", []) or [])
-            ],
+            "steps": [{"id": s.id, "title": s.title,
+                       "severity": _sev(s.severity)} for s in (getattr(p, "steps", []) or [])],
         }
-
     score = result.risk_score() if callable(getattr(result, "risk_score", None)) else 0
     counts = {}
     for f in (result.findings or []):
-        s = _severity_str(f)
-        counts[s] = counts.get(s, 0) + 1
-
+        s = _sev(f.severity); counts[s] = counts.get(s, 0) + 1
     return {
         "target": result.target,
         "scanner_type": result.scanner_type,
         "risk_score": score,
         "error": result.error,
-        "findings": [finding_dict(f) for f in (result.findings or [])],
-        "attack_paths": [path_dict(p) for p in (result.attack_paths or [])],
+        "findings": [finding(f) for f in (result.findings or [])],
+        "attack_paths": [path(p) for p in (result.attack_paths or [])],
         "summary": counts,
         "metadata": result.metadata or {},
     }
 
+def _serialize_compliance(report) -> dict:
+    mappings = []
+    for m in getattr(report, "mappings", []):
+        controls = []
+        for c in getattr(m, "controls", []):
+            controls.append({
+                "framework": c.get("framework", "") if isinstance(c, dict) else getattr(c, "framework", ""),
+                "control_id": c.get("control_id", "") if isinstance(c, dict) else getattr(c, "control_id", ""),
+                "control_name": c.get("control_name", "") if isinstance(c, dict) else getattr(c, "control_name", ""),
+                "obligation": c.get("obligation", "") if isinstance(c, dict) else getattr(c, "obligation", ""),
+                "how_finding_maps": c.get("how_finding_maps", "") if isinstance(c, dict) else getattr(c, "how_finding_maps", ""),
+                "severity": c.get("severity", "") if isinstance(c, dict) else getattr(c, "severity", ""),
+            })
+        md = m if isinstance(m, dict) else vars(m)
+        mappings.append({
+            "finding_id": md.get("finding_id", ""),
+            "finding_title": md.get("finding_title", ""),
+            "finding_severity": md.get("finding_severity", ""),
+            "controls": controls,
+        })
+    return {
+        "overall_posture": getattr(report, "overall_posture", "UNKNOWN"),
+        "frameworks": list(getattr(report, "frameworks_covered", []) or []),
+        "priority_gaps": list(getattr(report, "priority_gaps", []) or []),
+        "control_summary": dict(getattr(report, "control_summary", {}) or {}),
+        "mappings": mappings,
+    }
+
+def _serialize_graph(graph, paths) -> dict:
+    nodes = []
+    for n in graph.nodes.values():
+        nd = n if isinstance(n, dict) else vars(n)
+        nodes.append({
+            "id": nd.get("id", ""),
+            "label": nd.get("label", nd.get("id", "")),
+            "type": nd.get("type", "tool"),
+            "is_crown_jewel": nd.get("is_crown_jewel", False),
+            "attacker_controlled": nd.get("attacker_controlled", False),
+        })
+    edges = []
+    for e in graph.edges:
+        ed = e if isinstance(e, dict) else vars(e)
+        edges.append({
+            "source": ed.get("src", ed.get("source", "")),
+            "target": ed.get("dst", ed.get("target", "")),
+            "type": ed.get("type", ""),
+            "label": ed.get("label", ""),
+        })
+    path_list = []
+    for p in paths:
+        pd = p if isinstance(p, dict) else vars(p)
+        node_ids = pd.get("nodes", [])
+        if not node_ids and "steps" in pd:
+            node_ids = [s.id if hasattr(s, "id") else str(s) for s in pd.get("steps", [])]
+        path_list.append({
+            "id": pd.get("id", pd.get("title", "")[:20]),
+            "title": pd.get("title", "Attack Path"),
+            "nodes": node_ids,
+            "entry_point": pd.get("entry_point", ""),
+            "crown_jewel": pd.get("crown_jewel", ""),
+            "exploitability": pd.get("exploitability", 0),
+            "impact": pd.get("impact", 0),
+            "mitre_atlas": list(pd.get("mitre_atlas", []) or []),
+        })
+    return {"nodes": nodes, "edges": edges, "paths": path_list}
+
+
+# ---------------------------------------------------------------------------
+# Auto-scan: detects type, handles folders with mixed content
+# ---------------------------------------------------------------------------
+
+def _scan_target(target: str) -> dict:
+    """Auto-detect and scan. Returns serialized result dict."""
+    target = target.strip()
+
+    # Supply chain
+    for prefix in ("pypi:", "npm:", "hf:", "dataset:"):
+        if target.startswith(prefix):
+            from agentscan.scanners.supply_chain_scanner import scan_supply_chain
+            return {**_serialize_result(scan_supply_chain(target)), "type": "supply"}
+
+    # GitHub
+    if re.search(r"github[.]com/[^/]+/[^/\s]+", target):
+        return _clone_and_scan(target)
+
+    # Live URL -> MCP
+    if target.startswith("http://") or target.startswith("https://"):
+        from agentscan.scanners.mcp_scanner import scan_mcp
+        return {**_serialize_result(scan_mcp(target)), "type": "mcp"}
+
+    p = Path(target)
+    if not p.exists():
+        return {"error": "Path not found: " + target, "type": "unknown"}
+
+    # Directory: scan source + auto-discover MCP manifests
+    if p.is_dir():
+        return _scan_directory(str(p))
+
+    # Single file
+    return _scan_file(p)
+
+
+def _scan_directory(dirpath: str) -> dict:
+    """Scan a directory: source scan + auto-discover MCP manifests, merge results."""
+    from agentscan.scanners.source_scanner import scan_source
+    from agentscan.scanners.mcp_scanner import scan_mcp
+    from agentscan.models import ScanResult, Severity
+
+    p = Path(dirpath)
+    result = scan_source(dirpath)
+    base = _serialize_result(result)
+    base["type"] = "source"
+
+    # Auto-discover MCP manifests and merge
+    mcp_candidates = [
+        f for f in p.rglob("*.json")
+        if any(kw in f.name.lower() for kw in ("mcp", "server", "manifest", "tools"))
+        and f.stat().st_size < 500_000
+    ]
+    for mcp_file in mcp_candidates[:3]:
+        try:
+            text = mcp_file.read_text(encoding="utf-8", errors="ignore")
+            data = json.loads(text)
+            if isinstance(data, dict) and "tools" in data:
+                mcp_result = scan_mcp(str(mcp_file))
+                if not mcp_result.error:
+                    mcp_dict = _serialize_result(mcp_result)
+                    # Merge findings and attack paths
+                    base["findings"] = base["findings"] + mcp_dict["findings"]
+                    base["attack_paths"] = base["attack_paths"] + mcp_dict["attack_paths"]
+                    base["risk_score"] = max(base.get("risk_score", 0), mcp_dict.get("risk_score", 0))
+                    base["mcp_manifests_found"] = base.get("mcp_manifests_found", []) + [str(mcp_file)]
+        except Exception:
+            pass
+
+    return base
+
+
+def _scan_file(p: Path) -> dict:
+    ext = p.suffix.lower()
+    if ext == ".py":
+        from agentscan.scanners.source_scanner import scan_source
+        return {**_serialize_result(scan_source(str(p))), "type": "source"}
+
+    if ext in (".yaml", ".yml", ".json"):
+        # Sniff: MCP manifest has tools with inputSchema
+        try:
+            import yaml as _yaml
+            text = p.read_text(encoding="utf-8", errors="ignore")
+            data = _yaml.safe_load(text) if ext in (".yaml", ".yml") else json.loads(text)
+            if isinstance(data, dict):
+                tools = data.get("tools", [])
+                if tools and any(isinstance(t, dict) and "inputSchema" in t for t in tools[:5]):
+                    from agentscan.scanners.mcp_scanner import scan_mcp
+                    return {**_serialize_result(scan_mcp(str(p))), "type": "mcp"}
+        except Exception:
+            pass
+        from agentscan.scanners.agent_scanner import scan_agent_config
+        return {**_serialize_result(scan_agent_config(str(p))), "type": "agent"}
+
+    return {"error": "Unsupported file type: " + p.suffix + ". Supported: .py .yaml .yml .json", "type": "unknown"}
+
 
 def _clone_and_scan(github_url: str) -> dict:
-    """
-    Clone a GitHub repo to a temp directory and scan it.
-    Supports:
-      https://github.com/user/repo
-      https://github.com/user/repo/tree/main/subdir
-      github.com/user/repo  (no protocol)
-    Returns the scan result dict with an extra 'cloned_from' field.
-    """
-    import subprocess, tempfile, shutil, re
-
     url = github_url.strip()
-    # Normalize: add https:// if missing
     if not url.startswith("http"):
         url = "https://" + url
-
-    # Extract subdirectory if URL points into a tree
     subdir = None
-    tree_match = re.search(r"/tree/[^/]+/(.+)", url)
-    if tree_match:
-        subdir = tree_match.group(1)
-        # Strip the tree path to get the bare repo URL
+    m = re.search(r"/tree/[^/]+/(.+)", url)
+    if m:
+        subdir = m.group(1)
         url = re.sub(r"/tree/.+", "", url)
-
-    # Strip .git suffix confusion and trailing slashes
     url = url.rstrip("/")
     if not url.endswith(".git"):
         url = url + ".git"
 
     tmp = tempfile.mkdtemp(prefix="agentscan_gh_")
     try:
-        result = subprocess.run(
-            ["git", "clone", "--depth", "1", "--quiet", url, tmp],
-            capture_output=True, text=True, timeout=120
-        )
-        if result.returncode != 0:
-            shutil.rmtree(tmp, ignore_errors=True)
-            err = result.stderr.strip() or "git clone failed"
-            return {"error": "Could not clone repository:\n" + err, "type": "unknown"}
-
+        r = subprocess.run(["git", "clone", "--depth", "1", "--quiet", url, tmp],
+                           capture_output=True, text=True, timeout=120)
+        if r.returncode != 0:
+            return {"error": "Could not clone: " + (r.stderr.strip() or "git clone failed"), "type": "unknown"}
         scan_path = str(Path(tmp) / subdir) if subdir else tmp
-
         if not Path(scan_path).exists():
-            shutil.rmtree(tmp, ignore_errors=True)
             return {"error": "Subdirectory not found in repo: " + (subdir or ""), "type": "unknown"}
-
-        scan_result = _auto_detect_and_scan(scan_path)
-        scan_result["cloned_from"] = github_url
-        scan_result["cloned_path"] = scan_path
-        return scan_result
+        result = _scan_directory(scan_path)
+        result["cloned_from"] = github_url
+        return result
     except subprocess.TimeoutExpired:
-        shutil.rmtree(tmp, ignore_errors=True)
         return {"error": "Clone timed out (120s). Try a smaller repo or a specific subdirectory.", "type": "unknown"}
     except Exception as e:
-        shutil.rmtree(tmp, ignore_errors=True)
         return {"error": str(e), "type": "unknown"}
-    # Note: temp dir intentionally left for compliance/graph follow-up calls
-    # It will be cleaned by OS on next boot or explicit cleanup
 
 
-def _auto_detect_and_scan(target: str) -> dict:
-    """
-    Auto-detect what kind of target this is and route to the right scanner.
-    Returns a dict with result + detected_type.
-    """
-    from pathlib import Path
-
-    target = target.strip()
-
-    # Supply chain identifiers
-    for prefix in ("pypi:", "npm:", "hf:", "dataset:"):
-        if target.startswith(prefix):
-            from agentscan.scanners.supply_chain_scanner import scan_supply_chain
-            result = scan_supply_chain(target)
-            return {"type": "supply", **_result_to_dict(result)}
-
-    # Live URL -> MCP
-    if target.startswith("http://") or target.startswith("https://"):
-        from agentscan.scanners.mcp_scanner import scan_mcp
-        result = scan_mcp(target)
-        return {"type": "mcp", **_result_to_dict(result)}
-
-    p = Path(target)
-
-    if not p.exists():
-        return {"error": "Path not found: " + target, "type": "unknown"}
-
-    if p.is_dir():
-        # Directory -> source scan
-        from agentscan.scanners.source_scanner import scan_source
-        result = scan_source(target)
-        d = _result_to_dict(result)
-        d["type"] = "source"
-        return d
-
-    # File - detect by extension and content
-    ext = p.suffix.lower()
-
-    if ext == ".py":
-        from agentscan.scanners.source_scanner import scan_source
-        result = scan_source(target)
-        d = _result_to_dict(result)
-        d["type"] = "source"
-        return d
-
-    if ext in (".yaml", ".yml", ".json"):
-        # Sniff content to decide agent vs mcp
-        try:
-            import yaml as _yaml
-            text = p.read_text(encoding="utf-8", errors="ignore")
-            data = _yaml.safe_load(text) if ext in (".yaml", ".yml") else json.loads(text)
-
-            # MCP if tools have inputSchema
-            if isinstance(data, dict):
-                tools = data.get("tools", [])
-                if tools and any(isinstance(t, dict) and "inputSchema" in t for t in tools[:5]):
-                    from agentscan.scanners.mcp_scanner import scan_mcp
-                    result = scan_mcp(target)
-                    d = _result_to_dict(result)
-                    d["type"] = "mcp"
-                    return d
-
-                # n8n / Flowise / Dify detection
-                if "nodes" in data or "model_config" in data:
-                    from agentscan.scanners.agent_scanner import scan_agent_config
-                    result = scan_agent_config(target)
-                    d = _result_to_dict(result)
-                    d["type"] = "agent"
-                    return d
-
-        except Exception:
-            pass
-
-        from agentscan.scanners.agent_scanner import scan_agent_config
-        result = scan_agent_config(target)
-        d = _result_to_dict(result)
-        d["type"] = "agent"
-        return d
-
-    return {"error": "Cannot determine scan type for: " + target + "\nSupported: .py, .yaml, .yml, .json files, folders, URLs, pypi:/npm:/hf:/dataset: identifiers", "type": "unknown"}
-
-
-def _get_compliance(target: str) -> dict:
-    """Run compliance mapping on a target."""
+def _get_graph(target: str) -> dict:
     try:
-        from agentscan.cli_compliance import _detect_scanner
-        from agentscan.compliance.framework_mapper import map_findings_to_controls
-        result = _detect_scanner(target)
-        if result.error:
-            return {"error": result.error}
-        report = map_findings_to_controls(result)
-        # Serialize the compliance report
-        controls = []
-        for fc in getattr(report, "finding_control_mappings", []):
-            controls.append({
-                "finding_id": getattr(fc, "finding_id", ""),
-                "finding_title": getattr(fc, "finding_title", ""),
-                "severity": getattr(fc, "severity", ""),
-                "controls": [
-                    {"framework": c.framework, "control_id": c.control_id,
-                     "control_name": getattr(c, "control_name", ""),
-                     "requirement": getattr(c, "requirement", "")}
-                    for c in (getattr(fc, "controls", []) or [])
-                ],
-            })
-        return {
-            "overall_posture": getattr(report, "overall_posture", "UNKNOWN"),
-            "frameworks": getattr(report, "frameworks_covered", []),
-            "priority_actions": getattr(report, "priority_actions", []),
-            "finding_control_mappings": controls,
-        }
+        from agentscan.graph.engine import build_graph_from_scan
+        p = Path(target)
+        if p.is_dir() or (p.exists() and p.suffix == ".py"):
+            from agentscan.scanners.source_scanner import scan_source
+            result = scan_source(target)
+        else:
+            from agentscan.scanners.agent_scanner import scan_agent_config
+            result = scan_agent_config(target)
+        graph = build_graph_from_scan(result)
+        paths = graph.find_attack_paths()
+        return _serialize_graph(graph, paths)
     except Exception as e:
         return {"error": str(e)}
 
 
-def _run_doctor(path: str) -> dict:
-    """Run agentscan doctor and return structured results."""
-    from agentscan.doctor import run_doctor
-    results = run_doctor(path)
-    return [
-        {
-            "label": r.label,
-            "found": r.found,
-            "detail": r.detail,
-            "suggested_command": r.suggested_command,
-            "severity": r.severity,
-        }
-        for r in results
-    ]
+def _get_compliance(target: str) -> dict:
+    try:
+        from agentscan.compliance.framework_mapper import map_findings_to_controls
+        p = Path(target)
+        if p.is_dir() or (p.exists() and p.suffix == ".py"):
+            from agentscan.scanners.source_scanner import scan_source
+            result = scan_source(target)
+        elif target.startswith("http"):
+            from agentscan.scanners.mcp_scanner import scan_mcp
+            result = scan_mcp(target)
+        else:
+            from agentscan.scanners.agent_scanner import scan_agent_config
+            result = scan_agent_config(target)
+        if result.error:
+            return {"error": result.error}
+        report = map_findings_to_controls(result)
+        return _serialize_compliance(report)
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "detail": traceback.format_exc()}
 
 
-def create_app(version: str = "0.2.6") -> "Flask":
+def _get_supply_chain(requirements_text: str, pkg_manager: str) -> dict:
+    """Parse requirements.txt / package.json and scan each dependency."""
+    from agentscan.scanners.supply_chain_scanner import scan_supply_chain
+    packages = []
+    results = []
+
+    if pkg_manager == "pypi":
+        for line in requirements_text.split("\n"):
+            line = line.strip()
+            if line and not line.startswith("#") and not line.startswith("-"):
+                pkg = re.split(r"[>=<!~\[;]", line)[0].strip()
+                if pkg:
+                    packages.append(("pypi:" + pkg, pkg))
+    elif pkg_manager == "npm":
+        try:
+            data = json.loads(requirements_text)
+            deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
+            packages = [("npm:" + name, name) for name in list(deps.keys())[:20]]
+        except Exception:
+            pass
+
+    for target, name in packages[:15]:  # limit to 15 to avoid timeout
+        try:
+            r = scan_supply_chain(target)
+            d = _serialize_result(r)
+            d["package_name"] = name
+            results.append(d)
+        except Exception as e:
+            results.append({"package_name": name, "error": str(e)})
+
+    return {"packages": results, "total": len(packages)}
+
+
+def _get_doctor(path: str) -> dict:
+    try:
+        from agentscan.doctor import run_doctor
+        results = run_doctor(path)
+        return {"results": [{"label": r.label, "found": r.found, "detail": r.detail,
+                              "suggested_command": r.suggested_command, "severity": r.severity}
+                             for r in results]}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Flask app
+# ---------------------------------------------------------------------------
+
+def create_app(version: str = "0.2.8") -> "Flask":
     from flask import Flask, request, jsonify, Response
     from agentscan.ui_html import get_dashboard_html
 
@@ -276,29 +348,61 @@ def create_app(version: str = "0.2.6") -> "Flask":
     def api_scan():
         data = request.get_json(force=True) or {}
         target = (data.get("target") or "").strip()
-        force_type = data.get("force_type")  # if user explicitly picks a type
+        force_type = data.get("force_type", "")
+
+        if force_type == "demo":
+            r = subprocess.run(["agentscan", "demo"],
+                capture_output=True, text=True, encoding="utf-8", timeout=120)
+            return jsonify({"type": "demo", "output": r.stdout + r.stderr})
 
         if not target:
             return jsonify({"error": "No target provided"}), 400
 
-        try:
-            if force_type == "demo":
-                r = subprocess.run(
-                    ["agentscan", "demo"],
-                    capture_output=True, text=True, encoding="utf-8", timeout=120
-                )
-                return jsonify({"type": "demo", "output": r.stdout + r.stderr})
+        # Handle uploaded file content
+        if data.get("file_content") is not None:
+            return _handle_upload(data)
 
-            # GitHub URL detection
-            import re
-            if re.search(r"github[.]com/[^/]+/[^/]+", target):
-                result = _clone_and_scan(target)
-            else:
-                result = _auto_detect_and_scan(target)
-            return jsonify(result)
+        try:
+            return jsonify(_scan_target(target))
         except Exception as e:
             import traceback
             return jsonify({"error": str(e), "detail": traceback.format_exc()}), 500
+
+    def _handle_upload(data: dict):
+        content = data.get("file_content", "")
+        filename = data.get("filename", "upload.yaml")
+        suffix = Path(filename).suffix or ".yaml"
+        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False, mode="w", encoding="utf-8")
+        tmp.write(content)
+        tmp.close()
+        try:
+            result = _scan_file(Path(tmp.name))
+            result["original_filename"] = filename
+            return jsonify(result)
+        finally:
+            try: os.unlink(tmp.name)
+            except Exception: pass
+
+    @app.route("/api/upload_dir", methods=["POST"])
+    def api_upload_dir():
+        """Receive multiple files as a virtual directory."""
+        data = request.get_json(force=True) or {}
+        files = data.get("files", [])  # [{name, content}, ...]
+        if not files:
+            return jsonify({"error": "No files provided"}), 400
+        tmp_dir = tempfile.mkdtemp(prefix="agentscan_upload_")
+        try:
+            for f in files:
+                name = f.get("name", "file.txt")
+                content = f.get("content", "")
+                dest = Path(tmp_dir) / Path(name).name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(content, encoding="utf-8", errors="ignore")
+            result = _scan_directory(tmp_dir)
+            result["uploaded_files"] = len(files)
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
     @app.route("/api/compliance", methods=["POST"])
     def api_compliance():
@@ -306,51 +410,34 @@ def create_app(version: str = "0.2.6") -> "Flask":
         target = (data.get("target") or "").strip()
         if not target:
             return jsonify({"error": "No target"}), 400
-        try:
-            return jsonify(_get_compliance(target))
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+        return jsonify(_get_compliance(target))
+
+    @app.route("/api/graph", methods=["POST"])
+    def api_graph():
+        data = request.get_json(force=True) or {}
+        target = (data.get("target") or "").strip()
+        if not target:
+            return jsonify({"error": "No target"}), 400
+        return jsonify(_get_graph(target))
+
+    @app.route("/api/supply_chain", methods=["POST"])
+    def api_supply_chain():
+        data = request.get_json(force=True) or {}
+        content = data.get("content", "")
+        pkg_manager = data.get("pkg_manager", "pypi")
+        target = data.get("target", "")
+        if target and not content:
+            # Single package scan
+            from agentscan.scanners.supply_chain_scanner import scan_supply_chain
+            result = scan_supply_chain(target)
+            return jsonify({"packages": [_serialize_result(result)], "total": 1})
+        return jsonify(_get_supply_chain(content, pkg_manager))
 
     @app.route("/api/doctor", methods=["POST"])
     def api_doctor():
         data = request.get_json(force=True) or {}
         path = (data.get("path") or ".").strip()
-        try:
-            return jsonify({"results": _run_doctor(path)})
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-
-    @app.route("/api/graph", methods=["POST"])
-    def api_graph():
-        """Return graph data for D3 rendering."""
-        data = request.get_json(force=True) or {}
-        target = (data.get("target") or "").strip()
-        if not target:
-            return jsonify({"error": "No target"}), 400
-        try:
-            from agentscan.scanners.agent_scanner import scan_agent_config
-            from agentscan.scanners.source_scanner import scan_source
-            from agentscan.graph.engine import build_graph_from_scan
-
-            p = Path(target)
-            if p.is_dir() or (p.exists() and p.suffix == ".py"):
-                result = scan_source(target)
-            else:
-                result = scan_agent_config(target)
-
-            graph = build_graph_from_scan(result)
-            paths = graph.find_attack_paths()
-
-            nodes = [{"id": n.id, "label": n.label, "type": n.node_type.value if hasattr(n.node_type,"value") else str(n.node_type)} for n in graph.nodes.values()]
-            edges = [{"source": e.src, "target": e.dst, "type": e.edge_type.value if hasattr(e.edge_type,"value") else str(e.edge_type)} for e in graph.edges]
-
-            return jsonify({
-                "nodes": nodes,
-                "edges": edges,
-                "paths": [{"id": p.id, "title": p.title, "nodes": [s.id for s in (p.steps or [])]} for p in paths],
-            })
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+        return jsonify(_get_doctor(path))
 
     return app
 
@@ -359,18 +446,12 @@ def run_ui(port: int = 0, open_browser: bool = True):
     import socket, logging
     if port == 0:
         with socket.socket() as s:
-            s.bind(("", 0))
-            port = s.getsockname()[1]
-
+            s.bind(("", 0)); port = s.getsockname()[1]
     from agentscan import __version__
     app = create_app(__version__)
-
     url = "http://localhost:" + str(port)
-    print("")
-    print("  AgentScan Dashboard  " + url)
-    print("  Press Ctrl+C to stop")
-    print("")
-
+    print("\n  AgentScan Dashboard  " + url)
+    print("  Press Ctrl+C to stop\n")
     if open_browser:
         def _open():
             time.sleep(1.0)
@@ -382,10 +463,7 @@ def run_ui(port: int = 0, open_browser: bool = True):
                     subprocess.Popen(["open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 else:
                     subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception:
-                pass
+            except Exception: pass
         threading.Thread(target=_open, daemon=True).start()
-
-    log = logging.getLogger("werkzeug")
-    log.setLevel(logging.ERROR)
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
     app.run(host="localhost", port=port, debug=False, use_reloader=False)
