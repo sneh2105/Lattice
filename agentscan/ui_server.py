@@ -155,11 +155,37 @@ def _scan_target(target: str) -> dict:
     return _scan_file(p)
 
 
+def _find_dependency_files(dirpath: str) -> dict:
+    """
+    Auto-discover dependency manifests in a directory.
+    Returns dict with keys: requirements, package_json, pyproject
+    """
+    p = Path(dirpath)
+    result = {}
+    
+    for req_file in ["requirements.txt", "requirements-dev.txt", "requirements/base.txt"]:
+        f = p / req_file
+        if f.exists():
+            result["requirements"] = {"path": str(f), "content": f.read_text(encoding="utf-8", errors="ignore")}
+            break
+    
+    pkg_json = p / "package.json"
+    if pkg_json.exists():
+        result["package_json"] = {"path": str(pkg_json), "content": pkg_json.read_text(encoding="utf-8", errors="ignore")}
+    
+    pyproject = p / "pyproject.toml"
+    if pyproject.exists():
+        content = pyproject.read_text(encoding="utf-8", errors="ignore")
+        # Extract dependencies from pyproject.toml
+        result["pyproject"] = {"path": str(pyproject), "content": content}
+    
+    return result
+
+
 def _scan_directory(dirpath: str) -> dict:
-    """Scan a directory: source scan + auto-discover MCP manifests, merge results."""
+    """Scan a directory: source scan + auto-discover MCP manifests + dependency files."""
     from agentscan.scanners.source_scanner import scan_source
     from agentscan.scanners.mcp_scanner import scan_mcp
-    from agentscan.models import ScanResult, Severity
 
     p = Path(dirpath)
     result = scan_source(dirpath)
@@ -180,13 +206,15 @@ def _scan_directory(dirpath: str) -> dict:
                 mcp_result = scan_mcp(str(mcp_file))
                 if not mcp_result.error:
                     mcp_dict = _serialize_result(mcp_result)
-                    # Merge findings and attack paths
                     base["findings"] = base["findings"] + mcp_dict["findings"]
                     base["attack_paths"] = base["attack_paths"] + mcp_dict["attack_paths"]
                     base["risk_score"] = max(base.get("risk_score", 0), mcp_dict.get("risk_score", 0))
                     base["mcp_manifests_found"] = base.get("mcp_manifests_found", []) + [str(mcp_file)]
         except Exception:
             pass
+
+    # Auto-discover dependency manifests for Supply Chain tab
+    base["dependency_files"] = _find_dependency_files(dirpath)
 
     return base
 
@@ -286,19 +314,32 @@ def _get_compliance(target: str) -> dict:
         return {"error": str(e), "detail": traceback.format_exc()}
 
 
-def _get_supply_chain(requirements_text: str, pkg_manager: str) -> dict:
-    """Parse requirements.txt / package.json and scan each dependency."""
+def _get_supply_chain(requirements_text: str, pkg_manager: str, source_path: str = "") -> dict:
+    """Parse requirements.txt / package.json / pyproject.toml and scan each dependency."""
     from agentscan.scanners.supply_chain_scanner import scan_supply_chain
+    import re as _re
     packages = []
     results = []
 
-    if pkg_manager == "pypi":
+    if pkg_manager == "pyproject":
+        # Extract from [project] dependencies or [tool.poetry.dependencies]
+        dep_match = _re.search(r'dependencies\s*=\s*\[(.*?)\]', requirements_text, _re.DOTALL)
+        if dep_match:
+            for item in _re.findall(r'"([^"]+)"', dep_match.group(1)):
+                pkg = _re.split(r'[>=<!~;]', item)[0].strip()
+                if pkg and pkg not in ("python",):
+                    packages.append(("pypi:" + pkg, pkg))
+        if not packages:
+            pkg_manager = "pypi"  # fall back to line-by-line
+
+    if pkg_manager in ("pypi", "pip"):
         for line in requirements_text.split("\n"):
             line = line.strip()
-            if line and not line.startswith("#") and not line.startswith("-"):
-                pkg = re.split(r"[>=<!~\[;]", line)[0].strip()
+            if line and not line.startswith("#") and not line.startswith("-") and not line.startswith("["):
+                pkg = re.split(r"[>=<!~;]", line)[0].strip()
                 if pkg:
                     packages.append(("pypi:" + pkg, pkg))
+
     elif pkg_manager == "npm":
         try:
             data = json.loads(requirements_text)
@@ -307,7 +348,7 @@ def _get_supply_chain(requirements_text: str, pkg_manager: str) -> dict:
         except Exception:
             pass
 
-    for target, name in packages[:15]:  # limit to 15 to avoid timeout
+    for target, name in packages[:20]:
         try:
             r = scan_supply_chain(target)
             d = _serialize_result(r)
@@ -316,8 +357,7 @@ def _get_supply_chain(requirements_text: str, pkg_manager: str) -> dict:
         except Exception as e:
             results.append({"package_name": name, "error": str(e)})
 
-    return {"packages": results, "total": len(packages)}
-
+    return {"packages": results, "total": len(packages), "source_path": source_path}
 
 def _get_doctor(path: str) -> dict:
     try:
@@ -426,8 +466,24 @@ def create_app(version: str = "0.2.8") -> "Flask":
         content = data.get("content", "")
         pkg_manager = data.get("pkg_manager", "pypi")
         target = data.get("target", "")
+        folder = data.get("folder", "")  # auto-read from folder
+
+        # Auto-read from folder if provided
+        if folder and not content:
+            dep_files = _find_dependency_files(folder)
+            if "requirements" in dep_files:
+                return jsonify(_get_supply_chain(dep_files["requirements"]["content"], "pypi",
+                                                 dep_files["requirements"]["path"]))
+            elif "package_json" in dep_files:
+                return jsonify(_get_supply_chain(dep_files["package_json"]["content"], "npm",
+                                                 dep_files["package_json"]["path"]))
+            elif "pyproject" in dep_files:
+                return jsonify(_get_supply_chain(dep_files["pyproject"]["content"], "pyproject",
+                                                 dep_files["pyproject"]["path"]))
+            return jsonify({"error": "No requirements.txt, package.json, or pyproject.toml found in " + folder,
+                           "packages": [], "total": 0})
+
         if target and not content:
-            # Single package scan
             from agentscan.scanners.supply_chain_scanner import scan_supply_chain
             result = scan_supply_chain(target)
             return jsonify({"packages": [_serialize_result(result)], "total": 1})
@@ -438,6 +494,82 @@ def create_app(version: str = "0.2.8") -> "Flask":
         data = request.get_json(force=True) or {}
         path = (data.get("path") or ".").strip()
         return jsonify(_get_doctor(path))
+
+    @app.route("/api/export/pdf", methods=["POST"])
+    def api_export_pdf():
+        """Generate a full compliance PDF report and return it as a download."""
+        import tempfile, os
+        from flask import send_file
+        data = request.get_json(force=True) or {}
+        target = (data.get("target") or "").strip()
+        org = data.get("organisation", "Organisation")
+        agent_name = data.get("agent_name", "AI Agent")
+
+        if not target:
+            return jsonify({"error": "No target"}), 400
+
+        try:
+            # Run scan to get ScanResult object (not dict)
+            p = Path(target)
+            if p.is_dir() or (p.exists() and p.suffix == ".py"):
+                from agentscan.scanners.source_scanner import scan_source
+                result = scan_source(target)
+            elif target.startswith("http"):
+                from agentscan.scanners.mcp_scanner import scan_mcp
+                result = scan_mcp(target)
+            else:
+                from agentscan.scanners.agent_scanner import scan_agent_config
+                result = scan_agent_config(target)
+
+            if result.error:
+                return jsonify({"error": result.error}), 400
+
+            # Generate PDF
+            from agentscan.compliance.audit_report import generate_audit_report
+            tmp = tempfile.mktemp(suffix=".pdf", prefix="agentscan_report_")
+            generate_audit_report(
+                result=result,
+                output_path=tmp,
+                agent_name=agent_name,
+                organisation=org,
+                include_dpia=True,
+            )
+
+            return send_file(
+                tmp,
+                mimetype="application/pdf",
+                as_attachment=True,
+                download_name="agentscan_compliance_report.pdf",
+            )
+        except Exception as e:
+            import traceback
+            return jsonify({"error": str(e), "detail": traceback.format_exc()}), 500
+
+    @app.route("/api/export/sarif", methods=["POST"])
+    def api_export_sarif():
+        """Return SARIF 2.1.0 output for GitHub Security tab integration."""
+        from flask import Response as FlaskResponse
+        data = request.get_json(force=True) or {}
+        target = (data.get("target") or "").strip()
+        if not target:
+            return jsonify({"error": "No target"}), 400
+        try:
+            p = Path(target)
+            if p.is_dir() or (p.exists() and p.suffix == ".py"):
+                from agentscan.scanners.source_scanner import scan_source
+                result = scan_source(target)
+            else:
+                from agentscan.scanners.agent_scanner import scan_agent_config
+                result = scan_agent_config(target)
+            from agentscan.outputs.json_output import to_sarif
+            sarif = to_sarif(result)
+            return FlaskResponse(
+                json.dumps(sarif, indent=2),
+                mimetype="application/json",
+                headers={"Content-Disposition": "attachment; filename=agentscan.sarif"}
+            )
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
     return app
 

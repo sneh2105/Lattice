@@ -118,6 +118,22 @@ DATASET_POISON_PATTERNS: list[dict] = [
     },
 ]
 
+# Well-known legitimate packages -- never flag these as typosquats
+# These are the actual package names, not publisher names
+KNOWN_GOOD_PYPI_PACKAGES = {
+    "langchain", "langchain-core", "langchain-community", "langchain-openai",
+    "langchain-anthropic", "langchain-google-genai", "langchain-huggingface",
+    "openai", "anthropic", "boto3", "botocore", "google-cloud-aiplatform",
+    "azure-ai-openai", "cohere", "mistralai", "replicate",
+    "numpy", "scipy", "pandas", "matplotlib", "scikit-learn", "torch",
+    "tensorflow", "keras", "transformers", "datasets", "tokenizers",
+    "huggingface-hub", "pydantic", "fastapi", "flask", "requests",
+    "llama-index", "llama-index-core", "crewai", "autogen", "pyautogen",
+    "haystack-ai", "guidance", "outlines", "instructor",
+    "tiktoken", "sentence-transformers", "chromadb", "faiss-cpu", "pinecone-client",
+    "weaviate-client", "pymongo", "redis", "celery", "pytest", "black",
+}
+
 # Trusted publishers per registry
 TRUSTED_PYPI_PUBLISHERS = {
     "openai", "anthropic", "google", "microsoft", "meta", "huggingface",
@@ -158,8 +174,20 @@ def _fetch_text(url: str, timeout: int = 10, max_bytes: int = 50_000) -> str | N
 
 
 def _suspicious_name_heuristic(name: str, known_good: set[str]) -> bool:
-    """True if name looks like a typosquatting attempt."""
+    """True if name looks like a typosquatting attempt.
+    
+    Returns False immediately if the package is in KNOWN_GOOD_PYPI_PACKAGES --
+    these are legitimate packages that happen to have similar names to publishers.
+    """
+    # Never flag well-known legitimate packages as typosquats
+    if name.lower() in KNOWN_GOOD_PYPI_PACKAGES:
+        return False
     clean = name.lower().replace("-", "").replace("_", "").replace(".", "")
+    # Also check cleaned form against known-good cleaned forms
+    known_good_clean = {p.lower().replace("-","").replace("_","").replace(".","")
+                        for p in KNOWN_GOOD_PYPI_PACKAGES}
+    if clean in known_good_clean:
+        return False
     for good in known_good:
         good_clean = good.lower().replace("-", "").replace("_", "").replace(".", "")
         if good_clean != clean and _edit_distance(good_clean, clean) <= 2 and len(clean) > 4:
@@ -245,9 +273,20 @@ def _scan_pypi(package_name: str) -> ScanResult:
     version = info.get("version", "unknown")
     classifiers = info.get("classifiers", [])
 
-    # No source link
-    has_source = bool(project_urls.get("Source") or project_urls.get("Repository") or
-                      project_urls.get("Homepage") or info.get("home_page"))
+    # No source link -- case-insensitive key lookup (PyPI returns lowercase keys)
+    def _get_url(d: dict, *keys) -> str:
+        """Case-insensitive dict lookup for URL fields."""
+        d_lower = {k.lower(): v for k, v in d.items()}
+        for key in keys:
+            val = d_lower.get(key.lower())
+            if val:
+                return val
+        return ""
+    has_source = bool(
+        _get_url(project_urls, "Source", "Repository", "Code", "Github",
+                 "Source Code", "source", "repository", "code", "github") or
+        info.get("home_page")
+    )
     if not has_source:
         findings.append(Finding(
             id=f"SC-PYPI-NO-SRC-{name_lower[:20].upper()}",

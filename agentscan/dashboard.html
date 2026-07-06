@@ -490,7 +490,15 @@ function renderResults(d, target) {
   h+='<div id="t-compliance" style="display:none"><div id="comp-content"><div class="cbox" style="min-height:160px"><div class="spinner"></div><div class="lmsg">Loading compliance map...</div></div></div></div>';
 
   // SUPPLY CHAIN
+  var depFiles = d.dependency_files || {};
+  var hasDepFiles = Object.keys(depFiles).length > 0;
   h+='<div id="t-supply" style="display:none">';
+  if(hasDepFiles) {
+    var depFile = depFiles.requirements || depFiles.package_json || depFiles.pyproject || {};
+    h+='<div class="posture-card" style="cursor:pointer;margin-bottom:14px" onclick="autoScanDeps()">';
+    h+='<div><div class="plbl">Dependency file found</div><div style="font-size:13px;font-weight:600;color:var(--green)">&#9989; '+esc(depFile.path||'Found')+'</div></div>';
+    h+='<div class="psep"></div><div><div class="plbl">Action</div><div style="font-size:12px;color:var(--accent)">Click to scan all dependencies</div></div></div>';
+  }
   h+='<div class="sec-title">Scan a package</div>';
   h+='<div class="pkg-tabs"><button class="pkg-tab active" onclick="setPkg(this,\'pypi\')">PyPI</button><button class="pkg-tab" onclick="setPkg(this,\'npm\')">npm</button><button class="pkg-tab" onclick="setPkg(this,\'hf\')">HuggingFace</button><button class="pkg-tab" onclick="setPkg(this,\'dataset\')">Dataset</button></div>';
   h+='<div class="inp-row" style="margin-bottom:10px"><input class="txt-in" id="pkg-in" placeholder="e.g. langchain" onkeydown="if(event.key===\'Enter\')scanPkg()"><button class="icon-btn" onclick="scanPkg()">&#8594;</button></div>';
@@ -504,23 +512,42 @@ function renderResults(d, target) {
 
   // EXPORT
   h+='<div id="t-export" style="display:none">';
-  h+='<div class="sec-title">Export scan results</div>';
+  h+='<div class="sec-title">Download Reports</div>';
   h+='<div class="export-grid">';
-  h+='<button class="export-btn" onclick="copyJSON()"><span class="export-icon">&#128196;</span>Copy JSON<br><small style="color:var(--muted)">Full scan data</small></button>';
-  h+='<button class="export-btn" onclick="copyMarkdown()"><span class="export-icon">&#128221;</span>Copy Markdown<br><small style="color:var(--muted)">For tickets / docs</small></button>';
-  h+='<button class="export-btn" onclick="downloadJSON()"><span class="export-icon">&#8681;</span>Download JSON<br><small style="color:var(--muted)">Save to disk</small></button>';
+  h+='<button class="export-btn" onclick="downloadPDF()" id="pdf-btn"><span class="export-icon">&#128196;</span>Download PDF<br><small style="color:var(--muted)">Compliance audit report<br>for auditors & execs</small></button>';
+  h+='<button class="export-btn" onclick="downloadSARIF()"><span class="export-icon">&#128270;</span>Download SARIF<br><small style="color:var(--muted)">For GitHub Security tab<br>upload to code scanning</small></button>';
+  h+='<button class="export-btn" onclick="downloadJSON()"><span class="export-icon">&#8681;</span>Download JSON<br><small style="color:var(--muted)">Full machine-readable<br>scan results</small></button>';
+  h+='<button class="export-btn" onclick="copyMarkdown()"><span class="export-icon">&#128221;</span>Copy Markdown<br><small style="color:var(--muted)">For tickets, Jira,<br>Confluence, Notion</small></button>';
+  h+='<button class="export-btn" onclick="copyJSON()"><span class="export-icon">&#128203;</span>Copy JSON<br><small style="color:var(--muted)">Pipe into other tools</small></button>';
   h+='</div>';
-  if(scanHistory.length>1){
-    var prev=null;
-    for(var i=1;i<scanHistory.length;i++){if(scanHistory[i].target===target){prev=scanHistory[i];break;}}
-    if(prev){
-      var diff=score-(prev.score||0);
-      var diffColor=diff>0?'var(--red)':'var(--green)';
-      h+='<div class="sec-title">Diff vs previous scan</div>';
-      h+='<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;font-size:13px">';
-      h+='Previous: <strong>'+prev.score+'</strong> &nbsp; Current: <strong>'+score+'</strong> &nbsp; Change: <strong style="color:'+diffColor+'">'+(diff>0?'+':'')+diff+'</strong></div>';
-    }
+
+  // PDF options
+  h+='<div class="sec-title">PDF Report Options</div>';
+  h+='<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">';
+  h+='<div style="flex:1;min-width:140px"><div class="fslbl">Organisation name</div><input class="txt-in" id="pdf-org" placeholder="Your Organisation" style="margin-top:4px"></div>';
+  h+='<div style="flex:1;min-width:140px"><div class="fslbl">Agent / system name</div><input class="txt-in" id="pdf-agent" placeholder="AI Agent" style="margin-top:4px"></div>';
+  h+='</div>';
+
+  // Compliance summary in export
+  h+='<div class="sec-title">Compliance Summary</div>';
+  h+='<div id="export-compliance">Loading...</div>';
+
+  // Diff view
+  var prevScan=null;
+  for(var si=1;si<scanHistory.length;si++){if(scanHistory[si].target===target){prevScan=scanHistory[si];break;}}
+  if(prevScan){
+    var sdiff=score-(prevScan.score||0);
+    h+='<div class="sec-title">Diff vs previous scan ('+prevScan.time+')</div>';
+    h+='<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px">';
+    h+='<div style="display:flex;gap:20px;align-items:center;margin-bottom:10px">';
+    h+='<div><div class="fslbl">Previous score</div><div style="font-size:22px;font-weight:700;color:'+rc(prevScan.score||0)+'">'+prevScan.score+'</div></div>';
+    h+='<div style="font-size:24px;color:var(--muted)">&#8594;</div>';
+    h+='<div><div class="fslbl">Current score</div><div style="font-size:22px;font-weight:700;color:'+rc(score)+'">'+score+'</div></div>';
+    h+='<div><div class="fslbl">Change</div><div style="font-size:22px;font-weight:700;color:'+(sdiff>0?'var(--red)':'var(--green)')+'">'+( sdiff>0?'+':'')+sdiff+'</div></div>';
+    h+='</div>';
+    h+='</div>';
   }
+
   h+='</div>';
 
   h+='</div>';
@@ -541,6 +568,7 @@ function showTab(tabId) {
   if(tabId==='graph'&&graphData)renderGraph(graphData);
   if(tabId==='health'&&curTarget)loadHealth(curTarget);
   if(tabId==='compliance'&&compData)renderCompliance(compData);
+  if(tabId==='export')renderExportCompliance();
 }
 window.showTab = showTab;
 
@@ -609,7 +637,7 @@ async function loadCompliance(target) {
   try {
     var r=await fetch('/api/compliance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target:target})});
     var d=await r.json();
-    if(!d.error){compData=d;if(curTab==='compliance')renderCompliance(d);updatePosture(d);}
+    if(!d.error){compData=d;if(curTab==='compliance')renderCompliance(d);updatePosture(d);if(curTab==='export')renderExportCompliance();}
     else{var el=$('comp-content');if(el)el.innerHTML='<div class="hint" style="padding:14px">'+esc(d.error)+'</div>';}
   }catch(e){}
 }
@@ -679,6 +707,21 @@ async function scanReqs(){
 }
 window.scanReqs = scanReqs;
 
+async function autoScanDeps(){
+  if(!curResult||!curResult.dependency_files)return;
+  var depFiles=curResult.dependency_files;
+  var sr=$('supply-results');
+  if(sr)sr.innerHTML='<div class="cbox" style="min-height:80px"><div class="spinner"></div><div class="lmsg">Scanning dependencies from disk...</div></div>';
+  try{
+    var resp=await fetch('/api/supply_chain',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({folder:curTarget})});
+    var d=await resp.json();
+    renderSupply(d.packages||[]);
+    if(d.source_path){var sr2=$('supply-results');if(sr2)sr2.innerHTML='<div class="hint" style="margin-bottom:8px">From: '+esc(d.source_path)+'</div>'+sr2.innerHTML;}
+  }catch(e){if(sr)sr.innerHTML='<div class="hint">'+esc(e.message)+'</div>';}
+}
+window.autoScanDeps = autoScanDeps;
+
 function renderSupply(pkgs){
   if(!pkgs.length){$('supply-results').innerHTML='<div class="hint">No packages found</div>';return;}
   $('supply-results').innerHTML=pkgs.map(function(p){
@@ -708,22 +751,110 @@ function filterF(btn,sev){document.querySelectorAll('.fchip').forEach(function(c
 window.filterF = filterF;
 
 // ── Export ─────────────────────────────────────────────────────────
-function copyJSON(){if(!curResult)return;navigator.clipboard.writeText(JSON.stringify(curResult,null,2)).then(function(){alert('JSON copied to clipboard');});}
+function copyJSON(){
+  if(!curResult)return;
+  navigator.clipboard.writeText(JSON.stringify(curResult,null,2)).then(function(){alert('JSON copied to clipboard');});
+}
 window.copyJSON = copyJSON;
+
 function copyMarkdown(){
   if(!curResult)return;
-  var d=curResult, md='# AgentScan Report: '+(curTarget||'')+'\n\n**Risk Score:** '+(d.risk_score||0)+'/100\n\n';
-  (d.attack_paths||[]).forEach(function(p){md+='## Attack Path: '+p.title+'\n**Entry:** '+p.entry_point+'\n\n';});
-  (d.findings||[]).filter(function(f){return f.severity!=='INFO';}).forEach(function(f){md+='### ['+f.severity+'] '+f.title+'\n'+f.explanation+'\n\n**Fix:** '+f.remediation+'\n\n';});
-  navigator.clipboard.writeText(md).then(function(){alert('Markdown copied');});
+  var d=curResult;
+  var md='# AgentScan Security Report\n\n';
+  md+='**Target:** '+(curTarget||'')+'  \n';
+  md+='**Risk Score:** '+(d.risk_score||0)+'/100  \n';
+  md+='**Scanner:** '+(d.type||d.scanner_type||'')+'  \n\n';
+  if(compData){
+    md+='## Compliance\n\n';
+    md+='**Posture:** '+(compData.overall_posture||'UNKNOWN')+'  \n';
+    md+='**Frameworks:** '+((compData.frameworks||[]).join(', '))+'  \n\n';
+    if(compData.priority_gaps&&compData.priority_gaps.length){
+      md+='### Priority Actions\n\n';
+      (compData.priority_gaps||[]).forEach(function(g){md+='- '+g+'\n';});
+      md+='\n';
+    }
+  }
+  if((d.attack_paths||[]).length){
+    md+='## Attack Paths\n\n';
+    (d.attack_paths||[]).forEach(function(p){
+      md+='### '+p.title+'\n';
+      md+='**Entry:** '+p.entry_point+'  \n';
+      md+='**Impact:** '+p.impact+'  \n';
+      if((p.mitre_atlas||[]).length) md+='**MITRE ATLAS:** '+p.mitre_atlas.join(', ')+'  \n';
+      md+='\n';
+    });
+  }
+  md+='## Findings\n\n';
+  (d.findings||[]).filter(function(f){return f.severity!=='INFO';}).forEach(function(f){
+    md+='### ['+f.severity+'] '+f.title+'\n\n';
+    if(f.explanation) md+=f.explanation+'\n\n';
+    if(f.impact) md+='**Impact:** '+f.impact+'\n\n';
+    if(f.remediation) md+='**Fix:** '+f.remediation+'\n\n';
+    if((f.mitre_atlas||[]).length) md+='**MITRE ATLAS:** '+f.mitre_atlas.join(', ')+'\n\n';
+  });
+  navigator.clipboard.writeText(md).then(function(){alert('Markdown copied to clipboard');});
 }
 window.copyMarkdown = copyMarkdown;
+
 function downloadJSON(){
   if(!curResult)return;
-  var blob=new Blob([JSON.stringify(curResult,null,2)],{type:'application/json'});
+  var exportData = Object.assign({}, curResult);
+  if(compData) exportData.compliance = compData;
+  var blob=new Blob([JSON.stringify(exportData,null,2)],{type:'application/json'});
   var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='agentscan_report.json';a.click();
 }
 window.downloadJSON = downloadJSON;
+
+async function downloadPDF(){
+  if(!curTarget){alert('Run a scan first');return;}
+  var btn=document.getElementById('pdf-btn');
+  if(btn){btn.textContent='Generating PDF...';btn.disabled=true;}
+  try {
+    var org=(document.getElementById('pdf-org')||{}).value||'Organisation';
+    var agent=(document.getElementById('pdf-agent')||{}).value||'AI Agent';
+    var resp=await fetch('/api/export/pdf',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({target:curTarget,organisation:org,agent_name:agent})});
+    if(!resp.ok){var err=await resp.json();alert('PDF error: '+(err.error||'Unknown'));return;}
+    var blob=await resp.blob();
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='agentscan_compliance_report.pdf';a.click();
+  }catch(e){alert('PDF generation failed: '+e.message);}
+  finally{if(btn){btn.textContent='Download PDF';btn.disabled=false;}}
+}
+window.downloadPDF = downloadPDF;
+
+async function downloadSARIF(){
+  if(!curTarget){alert('Run a scan first');return;}
+  try {
+    var resp=await fetch('/api/export/sarif',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({target:curTarget})});
+    if(!resp.ok){var err=await resp.json();alert('SARIF error: '+(err.error||'Unknown'));return;}
+    var blob=await resp.blob();
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='agentscan.sarif';a.click();
+  }catch(e){alert('SARIF export failed: '+e.message);}
+}
+window.downloadSARIF = downloadSARIF;
+
+function renderExportCompliance(){
+  var el=document.getElementById('export-compliance');
+  if(!el)return;
+  if(!compData){el.innerHTML='<div class="hint">Compliance data loading...</div>';return;}
+  var p=compData.overall_posture||'UNKNOWN';
+  var cls=p.toLowerCase().replace(/[-\s]/g,'-');
+  var h='<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px">';
+  h+='<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">';
+  h+='<div><div class="fslbl">Posture</div><div class="pval p-'+cls+'">'+esc(p)+'</div></div>';
+  var cs=compData.control_summary||{};
+  Object.entries(cs).slice(0,4).forEach(function(e){h+='<div><div class="fslbl">'+esc(e[0])+'</div><div style="font-size:16px;font-weight:700">'+e[1]+'</div></div>';});
+  h+='</div></div>';
+  var gaps=compData.priority_gaps||[];
+  if(gaps.length){
+    h+='<div class="fslbl" style="margin-bottom:6px;color:var(--red)">Priority Actions (must resolve before compliance claims)</div>';
+    gaps.slice(0,3).forEach(function(g){h+='<div class="paction">'+esc(g)+'</div>';});
+  }
+  var fws=compData.frameworks||[];
+  if(fws.length) h+='<div class="fw-chips">'+fws.map(function(f){return '<span class="fw-chip">'+esc(f)+'</span>';}).join('')+'</div>';
+  el.innerHTML=h;
+}
 
 // ── Demo ────────────────────────────────────────────────────────────
 function renderDemo(output){
