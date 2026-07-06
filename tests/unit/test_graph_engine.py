@@ -118,3 +118,56 @@ def test_open_flag_creates_default_filename():
     assert "Interactive graph ->" in result.stdout, (
         f"Expected file path in output, got: {result.stdout[:300]}"
     )
+
+
+def test_graph_serialization_no_object_object():
+    """
+    Regression: graph path steps were serialized as raw Node objects,
+    rendering as '[object Object]' in the browser.
+    All node IDs in paths must be plain strings.
+    """
+    from agentscan.scanners.agent_scanner import scan_agent_config
+    from agentscan.graph.engine import build_graph_from_scan
+    from agentscan.ui_server import _serialize_graph
+    import json
+
+    result = scan_agent_config("examples/agent_configs/dangerous_agent.yaml")
+    graph = build_graph_from_scan(result)
+    paths = graph.find_attack_paths()
+    data = _serialize_graph(graph, paths)
+
+    # Must be JSON serializable (no Python objects)
+    serialized = json.dumps(data)
+    assert "[object Object]" not in serialized
+
+    # All node IDs must be strings
+    for node in data["nodes"]:
+        assert isinstance(node["id"], str), f"Node id not a string: {type(node['id'])}"
+        assert isinstance(node["type"], str), f"Node type not a string: {type(node['type'])}"
+
+    # All edge source/target must be strings
+    for edge in data["edges"]:
+        assert isinstance(edge["source"], str), f"Edge source not a string: {type(edge['source'])}"
+        assert isinstance(edge["target"], str), f"Edge target not a string: {type(edge['target'])}"
+        assert isinstance(edge["type"], str), f"Edge type not a string: {type(edge['type'])}"
+
+    # All path node lists must contain strings only
+    for path in data["paths"]:
+        for nid in path["nodes"]:
+            assert isinstance(nid, str), f"Path node id not a string: {type(nid)} = {nid}"
+
+
+def test_graph_all_paths_have_nodes():
+    """All attack paths in the graph must have at least one node ID."""
+    from agentscan.scanners.agent_scanner import scan_agent_config
+    from agentscan.graph.engine import build_graph_from_scan
+    from agentscan.ui_server import _serialize_graph
+
+    result = scan_agent_config("examples/agent_configs/dangerous_agent.yaml")
+    graph = build_graph_from_scan(result)
+    paths = graph.find_attack_paths()
+    data = _serialize_graph(graph, paths)
+
+    assert len(data["paths"]) > 0, "Dangerous agent should have attack paths"
+    for path in data["paths"]:
+        assert len(path["nodes"]) > 0, f"Path '{path['title']}' has no nodes"

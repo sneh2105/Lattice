@@ -569,6 +569,7 @@ function showTab(tabId) {
   if(tabId==='health'&&curTarget)loadHealth(curTarget);
   if(tabId==='compliance'&&compData)renderCompliance(compData);
   if(tabId==='export')renderExportCompliance();
+  if(tabId==='supply'&&curResult&&curResult.dependency_files&&Object.keys(curResult.dependency_files).length)autoScanDeps();
 }
 window.showTab = showTab;
 

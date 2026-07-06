@@ -81,41 +81,65 @@ def _serialize_compliance(report) -> dict:
         "mappings": mappings,
     }
 
+def _enum_str(v) -> str:
+    """Convert enum, Node, or any object to a plain string for JSON."""
+    if hasattr(v, "value"):
+        return str(v.value)
+    if hasattr(v, "id"):  # Node object
+        return str(v.id)
+    return str(v) if v is not None else ""
+
+
 def _serialize_graph(graph, paths) -> dict:
     nodes = []
     for n in graph.nodes.values():
         nd = n if isinstance(n, dict) else vars(n)
+        node_type = nd.get("type", "tool")
         nodes.append({
-            "id": nd.get("id", ""),
-            "label": nd.get("label", nd.get("id", "")),
-            "type": nd.get("type", "tool"),
-            "is_crown_jewel": nd.get("is_crown_jewel", False),
-            "attacker_controlled": nd.get("attacker_controlled", False),
+            "id": str(nd.get("id", "")),
+            "label": str(nd.get("label", nd.get("id", ""))),
+            "type": _enum_str(node_type),
+            "is_crown_jewel": bool(nd.get("is_crown_jewel", False)),
+            "attacker_controlled": bool(nd.get("attacker_controlled", False)),
         })
     edges = []
     for e in graph.edges:
         ed = e if isinstance(e, dict) else vars(e)
+        edge_type = ed.get("type", "")
+        src = ed.get("src", ed.get("source", ""))
+        dst = ed.get("dst", ed.get("target", ""))
         edges.append({
-            "source": ed.get("src", ed.get("source", "")),
-            "target": ed.get("dst", ed.get("target", "")),
-            "type": ed.get("type", ""),
-            "label": ed.get("label", ""),
+            "source": _enum_str(src) if hasattr(src, "id") or hasattr(src, "value") else str(src),
+            "target": _enum_str(dst) if hasattr(dst, "id") or hasattr(dst, "value") else str(dst),
+            "type": _enum_str(edge_type),
+            "label": str(ed.get("label", "")),
         })
     path_list = []
     for p in paths:
         pd = p if isinstance(p, dict) else vars(p)
-        node_ids = pd.get("nodes", [])
-        if not node_ids and "steps" in pd:
-            node_ids = [s.id if hasattr(s, "id") else str(s) for s in pd.get("steps", [])]
+        # nodes field may be Node objects, strings, or Finding objects
+        raw_nodes = pd.get("nodes", [])
+        if not raw_nodes:
+            # Fall back to steps (Finding objects or Node objects)
+            raw_nodes = pd.get("steps", [])
+        node_ids = []
+        for item in raw_nodes:
+            if hasattr(item, "id"):
+                node_ids.append(str(item.id))
+            elif isinstance(item, str):
+                node_ids.append(item)
+        # entry_point and crown_jewel may be Node objects
+        entry = pd.get("entry_point", "")
+        crown = pd.get("crown_jewel", "")
         path_list.append({
-            "id": pd.get("id", pd.get("title", "")[:20]),
-            "title": pd.get("title", "Attack Path"),
+            "id": str(pd.get("id", pd.get("title", ""))[:20]),
+            "title": str(pd.get("title", "Attack Path")),
             "nodes": node_ids,
-            "entry_point": pd.get("entry_point", ""),
-            "crown_jewel": pd.get("crown_jewel", ""),
-            "exploitability": pd.get("exploitability", 0),
-            "impact": pd.get("impact", 0),
-            "mitre_atlas": list(pd.get("mitre_atlas", []) or []),
+            "entry_point": _enum_str(entry) if hasattr(entry, "id") or hasattr(entry, "label") else str(entry),
+            "crown_jewel": _enum_str(crown) if hasattr(crown, "id") or hasattr(crown, "label") else str(crown),
+            "exploitability": float(pd.get("exploitability", 0) or 0),
+            "impact": float(pd.get("impact", 0) or 0),
+            "mitre_atlas": [str(m) for m in (pd.get("mitre_atlas", []) or [])],
         })
     return {"nodes": nodes, "edges": edges, "paths": path_list}
 
@@ -293,22 +317,73 @@ def _get_graph(target: str) -> dict:
 
 
 def _get_compliance(target: str) -> dict:
+    """
+    Run compliance mapping including all findings (source + MCP merged).
+    For directory targets: scans both .py source AND any MCP manifests found.
+    """
     try:
         from agentscan.compliance.framework_mapper import map_findings_to_controls
+        from agentscan.models import ScanResult
+
         p = Path(target)
-        if p.is_dir() or (p.exists() and p.suffix == ".py"):
+        if p.is_dir():
+            # Merged scan: source + any MCP manifests in directory
+            from agentscan.scanners.source_scanner import scan_source
+            from agentscan.scanners.mcp_scanner import scan_mcp
+            source_result = scan_source(target)
+            all_findings = list(source_result.findings or [])
+            all_paths = list(source_result.attack_paths or [])
+
+            for mcp_file in list(p.rglob("*.json"))[:5]:
+                try:
+                    text = mcp_file.read_text(encoding="utf-8", errors="ignore")
+                    data = json.loads(text)
+                    if isinstance(data, dict) and "tools" in data:
+                        mcp_r = scan_mcp(str(mcp_file))
+                        if not mcp_r.error:
+                            all_findings.extend(mcp_r.findings or [])
+                            all_paths.extend(mcp_r.attack_paths or [])
+                except Exception:
+                    pass
+
+            result = ScanResult(
+                target=target, scanner_type="merged",
+                findings=all_findings, attack_paths=all_paths,
+                metadata=source_result.metadata or {},
+            )
+        elif p.exists() and p.suffix == ".py":
             from agentscan.scanners.source_scanner import scan_source
             result = scan_source(target)
         elif target.startswith("http"):
             from agentscan.scanners.mcp_scanner import scan_mcp
             result = scan_mcp(target)
+        elif p.exists() and p.suffix in (".json", ".yaml", ".yml"):
+            # Check if MCP manifest
+            try:
+                text = p.read_text(encoding="utf-8", errors="ignore")
+                data = json.loads(text) if p.suffix == ".json" else {}
+                if isinstance(data, dict) and "tools" in data and any(
+                    "inputSchema" in t for t in data["tools"][:3] if isinstance(t, dict)
+                ):
+                    from agentscan.scanners.mcp_scanner import scan_mcp
+                    result = scan_mcp(target)
+                else:
+                    from agentscan.scanners.agent_scanner import scan_agent_config
+                    result = scan_agent_config(target)
+            except Exception:
+                from agentscan.scanners.agent_scanner import scan_agent_config
+                result = scan_agent_config(target)
         else:
             from agentscan.scanners.agent_scanner import scan_agent_config
             result = scan_agent_config(target)
+
         if result.error:
             return {"error": result.error}
+
         report = map_findings_to_controls(result)
-        return _serialize_compliance(report)
+        out = _serialize_compliance(report)
+        out["findings_included"] = len(result.findings or [])
+        return out
     except Exception as e:
         import traceback
         return {"error": str(e), "detail": traceback.format_exc()}

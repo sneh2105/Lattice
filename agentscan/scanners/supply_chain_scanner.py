@@ -452,8 +452,26 @@ def _scan_hf_model(repo_id: str) -> ScanResult:
     safe_repo_id = urllib.parse.quote(repo_id, safe="/")
     meta = _fetch_json(f"https://huggingface.co/api/models/{safe_repo_id}")
     if not meta:
+        # Common mistake: lowercase model IDs. HF model names are case-sensitive.
+        # e.g. "phi-3" should be "Phi-3-mini-4k-instruct", "llama-2" should be "Llama-2-7b-hf"
+        hint = ""
+        common_fixes = {
+            "phi-3": "microsoft/Phi-3-mini-4k-instruct",
+            "phi3": "microsoft/Phi-3-mini-4k-instruct",
+            "llama-2": "meta-llama/Llama-2-7b-hf",
+            "llama2": "meta-llama/Llama-2-7b-hf",
+            "mistral": "mistralai/Mistral-7B-v0.1",
+            "gemma": "google/gemma-7b",
+            "claude": "anthropic/claude-3-haiku-20240307",
+        }
+        name_lower = repo_id.split("/")[-1].lower()
+        for key, fix in common_fixes.items():
+            if key in name_lower:
+                hint = f" Did you mean: hf:{fix}"
+                break
         return ScanResult(target=f"hf:{repo_id}", scanner_type="supply_chain_v2",
-                         error=f"Cannot fetch HuggingFace model: '{repo_id}'",
+                         error=("Cannot fetch HuggingFace model: '" + repo_id + "'." + hint +
+                               "\nNote: HuggingFace model IDs are case-sensitive."),
                          scan_duration_ms=int((time.monotonic()-start)*1000))
 
     author = meta.get("author", repo_id.split("/")[0] if "/" in repo_id else "unknown")
