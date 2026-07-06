@@ -300,6 +300,10 @@ Not sure where to start? Run: agentscan doctor .
     sub.add_parser("demo", help="Run AgentScan against bundled vulnerable agents -- zero setup, no code of your own needed")
     sub.add_parser("benchmark", help="Run the evaluation kit and report pass/fail against documented thresholds")
 
+    ui_p = sub.add_parser("ui", help="Open the AgentScan web dashboard in your browser")
+    ui_p.add_argument("--port", type=int, default=0, help="Port to run on (default: random free port)")
+    ui_p.add_argument("--no-browser", action="store_true", help="Don't open browser automatically")
+
     add_compliance_parser(sub)
     add_graph_parser(sub)
     add_runtime_parser(sub)
@@ -328,6 +332,11 @@ Not sure where to start? Run: agentscan doctor .
 
     if args.command == "benchmark":
         sys.exit(run_benchmark())
+
+    if args.command == "ui":
+        from agentscan.ui_server import run_ui
+        run_ui(port=getattr(args, "port", 0), open_browser=not getattr(args, "no_browser", False))
+        return
 
     if args.command == "agent":
         p = Path(args.config)
