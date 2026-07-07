@@ -7,9 +7,42 @@ from agentscan.graph.trust_flow import analyse_trust_flow, TrustLevel, _classify
 
 
 def make_result(caps, cap_to_tools=None):
+    """
+    Build a ScanResult with real Finding/AttackPath objects (not just a bare
+    capabilities_detected list) so it exercises build_graph_from_scan the
+    same way a real scanner output does -- build_graph_from_scan now builds
+    the graph strictly from result.attack_paths (the single-source-of-truth
+    fix for the graph/PDF consistency bug), so synthetic test fixtures must
+    provide attack_paths too, not just capability metadata.
+    """
+    from agentscan.models import ScanResult, Finding, AttackPath, Severity, ConfidenceLevel
+
+    cap_to_tools = cap_to_tools or {c: [c] for c in caps}
+    findings = []
+    for cap in caps:
+        tool = (cap_to_tools.get(cap) or [cap])[0]
+        findings.append(Finding(
+            id="TEST-CAP-" + cap.upper() + "-" + tool.upper(),
+            title="Tool '" + tool + "' grants " + cap,
+            severity=Severity.HIGH, confidence=ConfidenceLevel.HIGH, scanner="test",
+            explanation="", impact="", remediation="",
+            tags=["tool-permissions", cap],
+        ))
+
+    attack_paths = []
+    if findings:
+        attack_paths.append(AttackPath(
+            id="TEST-PATH-1", title="Synthetic test attack path",
+            severity=Severity.CRITICAL, steps=findings,
+            entry_point="Prompt injection", impact="Test impact",
+            description="Synthetic path for testing graph consumers.",
+            mitre_atlas=["AML.T0051"],
+        ))
+
     return ScanResult(
         target="test.yaml", scanner_type="agent_scanner",
-        metadata={"capabilities_detected": caps, "cap_to_tools": cap_to_tools or {}, "tool_count": len(caps)},
+        findings=findings, attack_paths=attack_paths,
+        metadata={"capabilities_detected": caps, "cap_to_tools": cap_to_tools, "tool_count": len(caps)},
     )
 
 

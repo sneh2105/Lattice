@@ -57,19 +57,55 @@ class AttackGraph:
         g.add_node(...)
         g.add_edge(...)
         paths = g.find_attack_paths()
+
+    NOTE: this does NOT pre-populate every possible entry-point/crown-jewel
+    node. A node only exists if it is actually used by an edge -- rendering
+    a disconnected node (e.g. "AWS / Cloud" or "Tool Response" with zero
+    edges because no finding actually reached them) misrepresents the scan
+    as finding more than it did. Use add_predefined_entry_node /
+    add_predefined_crown_jewel to opt a specific known node in explicitly.
     """
 
-    def __init__(self):
+    def __init__(self, prepopulate: bool = True):
         self.nodes: dict[str, Node] = {}
         self.edges: list[Edge] = []
         self._adj: dict[str, list[Edge]] = defaultdict(list)   # adjacency list
         self._radj: dict[str, list[Edge]] = defaultdict(list)  # reverse adjacency
 
-        # Add always-present nodes
-        for node in ATTACKER_ENTRY_NODES.values():
-            self.add_node(node)
-        for node in CROWN_JEWEL_NODES.values():
-            self.add_node(node)
+        # Other subsystems (trust_flow, mcp_trust_chain, ai_sql query engine,
+        # mcp_scanner_v2) build an AttackGraph and reference well-known node
+        # ids like "user_prompt" / "aws_credentials" directly without adding
+        # them first, so this default stays on for those callers.
+        # build_graph_from_scan() below opts OUT (prepopulate=False) because
+        # it adds only the nodes an actual attack path touches, then prunes
+        # anything left with zero edges -- see the "no orphan nodes" fix.
+        if prepopulate:
+            for node in ATTACKER_ENTRY_NODES.values():
+                self.add_node(node)
+            for node in CROWN_JEWEL_NODES.values():
+                self.add_node(node)
+
+    def add_predefined_entry_node(self, node_id: str) -> None:
+        """Opt-in helper: add one of the known ATTACKER_ENTRY_NODES by id."""
+        if node_id in ATTACKER_ENTRY_NODES and node_id not in self.nodes:
+            self.add_node(ATTACKER_ENTRY_NODES[node_id])
+
+    def add_predefined_crown_jewel(self, node_id: str) -> None:
+        """Opt-in helper: add one of the known CROWN_JEWEL_NODES by id."""
+        if node_id in CROWN_JEWEL_NODES and node_id not in self.nodes:
+            self.add_node(CROWN_JEWEL_NODES[node_id])
+
+    def prune_disconnected_nodes(self) -> None:
+        """Remove any node with zero edges (no in-edge and no out-edge).
+        Used by build_graph_from_scan so a rendered graph never shows a
+        floating node that no actual finding/attack path reached."""
+        connected = set()
+        for e in self.edges:
+            connected.add(e.src)
+            connected.add(e.dst)
+        for nid in list(self.nodes.keys()):
+            if nid not in connected:
+                del self.nodes[nid]
 
     def add_node(self, node: Node) -> None:
         self.nodes[node.id] = node
@@ -398,165 +434,319 @@ def _build_narrative(entry: Node, crown: Node, nodes: list[Node], edges: list[Ed
 
 # -- Graph builder from scan results -----------------------------------------
 
+# Maps a Finding's tags to a graph node type + label + edge type.
+# CRITICAL DISTINCTION (per issue): a finding tagged "code_execution" with
+# "behavioral-detection" (the eval()/exec() AST-body detector) is a DIFFERENT
+# exploitation mechanism than "shell_exec" (subprocess/os.system) -- arbitrary
+# Python code execution vs OS command execution. They must render as
+# different node types/labels because the responder's remediation differs
+# (sandboxing an eval() call vs restricting subprocess calls).
+_TAG_TO_NODE_SPEC = {
+    "code_execution": {
+        "node_id": "code_exec_runtime",
+        "node_type": NodeType.PROCESS,
+        "label": "Code Execution (Arbitrary Python)",
+        "impact": "Arbitrary Python code execution via eval()/exec() -- full runtime compromise",
+        "crown_jewel_value": 95,
+        "edge_type": EdgeType.EXECUTES,
+        "mitre": ["AML.T0017"],
+    },
+    "shell_exec": {
+        "node_id": "shell_process",
+        "node_type": NodeType.PROCESS,
+        "label": "OS Shell / Command Execution",
+        "impact": "Arbitrary OS command execution, persistence, lateral movement",
+        "crown_jewel_value": 95,
+        "edge_type": EdgeType.EXECUTES,
+        "mitre": ["AML.T0017"],
+    },
+    "secret_access": {
+        "node_id": "aws_credentials",
+        "node_type": NodeType.CROWN_JEWEL,
+        "label": "AWS / Cloud Credentials",
+        "impact": "Full cloud account takeover",
+        "crown_jewel_value": 100,
+        "edge_type": EdgeType.READS,
+        "mitre": ["AML.T0051"],
+    },
+    "cloud_api": {
+        "node_id": "aws_credentials",
+        "node_type": NodeType.CROWN_JEWEL,
+        "label": "AWS / Cloud Credentials",
+        "impact": "Full cloud account takeover",
+        "crown_jewel_value": 100,
+        "edge_type": EdgeType.ESCALATES,
+        "mitre": ["AML.T0048"],
+    },
+    "network_egress": {
+        "node_id": "external_network",
+        "node_type": NodeType.NETWORK,
+        "label": "External Network / Internet",
+        "impact": "Data exfiltration, C2 communication",
+        "crown_jewel_value": 60,
+        "edge_type": EdgeType.EXFILTRATES,
+        "mitre": ["AML.T0040"],
+    },
+    "database": {
+        "node_id": "database_contents",
+        "node_type": NodeType.CROWN_JEWEL,
+        "label": "Database Contents (PII / Financial)",
+        "impact": "Mass data exfiltration",
+        "crown_jewel_value": 85,
+        "edge_type": EdgeType.READS,
+        "mitre": ["AML.T0051"],
+    },
+    "file_write": {
+        "node_id": "filesystem",
+        "node_type": NodeType.RESOURCE,
+        "label": "Host Filesystem",
+        "impact": "Persistence, tampering, data destruction",
+        "crown_jewel_value": 50,
+        "edge_type": EdgeType.WRITES,
+        "mitre": ["AML.T0048"],
+    },
+    "file_read": {
+        "node_id": "filesystem",
+        "node_type": NodeType.RESOURCE,
+        "label": "Host Filesystem",
+        "impact": "Sensitive file disclosure",
+        "crown_jewel_value": 50,
+        "edge_type": EdgeType.READS,
+        "mitre": ["AML.T0051"],
+    },
+    "email_send": {
+        "node_id": "email_system",
+        "node_type": NodeType.NETWORK,
+        "label": "Email / Messaging System",
+        "impact": "Phishing, spam, social engineering at scale",
+        "crown_jewel_value": 55,
+        "edge_type": EdgeType.EXFILTRATES,
+        "mitre": ["AML.T0040"],
+    },
+    "financial_transaction": {
+        "node_id": "financial_system",
+        "node_type": NodeType.CROWN_JEWEL,
+        "label": "Financial / Payment System",
+        "impact": "Fraudulent transactions, financial loss",
+        "crown_jewel_value": 100,
+        "edge_type": EdgeType.EXECUTES,
+        "mitre": ["AML.T0048"],
+    },
+}
+
+
+def _finding_tool_name(finding) -> str:
+    """Extract the tool name from a Finding's title, e.g. "Tool 'foo' grants..." -> "foo"."""
+    title = getattr(finding, "title", "") or ""
+    if "\'" in title:
+        parts = title.split("\'")
+        if len(parts) >= 2:
+            return parts[1]
+    return title[:30]
+
+
+def _node_spec_for_finding(finding):
+    """
+    Pick the graph node spec for a Finding, checking tags in a priority order
+    so the MOST SPECIFIC mechanism wins when a finding has multiple tags.
+    code_execution (eval/exec) is checked before shell_exec so a behavioral
+    eval() detection never gets mislabeled as generic shell access.
+
+    Recognizes BOTH the standard capability tag vocabulary (agent_scanner/
+    source_scanner: "shell_exec", "database", ...) AND the raw MCP scanner
+    tag vocabulary ("MCP-SHELL", "MCP-DATABASE", ...) -- an MCP-derived
+    AttackPath's steps carry the finding objects exactly as mcp_scanner
+    produced them, with the MCP-native tags still attached, not translated.
+    Without this alias map, MCP-derived attack paths render with zero
+    mappable steps and vanish from the graph even though they're present in
+    result.attack_paths (the same list PDF/compliance/SARIF report from).
+    """
+    tags = set(getattr(finding, "tags", []) or [])
+    # Alias raw MCP tags onto the standard capability vocabulary
+    mcp_aliases = {
+        "MCP-SHELL": "shell_exec",
+        "MCP-SECRETS": "secret_access",
+        "MCP-NET": "network_egress",
+        "MCP-DATABASE": "database",
+        "MCP-CODE-EXEC": "code_execution",
+    }
+    for mcp_tag, std_tag in mcp_aliases.items():
+        if mcp_tag in tags:
+            tags.add(std_tag)
+
+    priority = ["code_execution", "shell_exec", "financial_transaction",
+                "secret_access", "database", "cloud_api", "network_egress",
+                "file_write", "file_read", "email_send"]
+    for tag in priority:
+        if tag in tags and tag in _TAG_TO_NODE_SPEC:
+            return tag, _TAG_TO_NODE_SPEC[tag]
+    return None, None
+
+
 def build_graph_from_scan(result: ScanResult) -> AttackGraph:
     """
-    Construct an AttackGraph from a ScanResult.
-    Works with agent_scanner, mcp_scanner, and supply_chain_scanner results.
-    """
-    g = AttackGraph()
-    caps = result.metadata.get("capabilities_detected", [])
-    cap_to_tools = result.metadata.get("cap_to_tools", {})
-    scanner = result.scanner_type
+    Build the attack graph DIRECTLY from result.attack_paths -- the exact
+    same list the PDF, compliance report, and JSON/SARIF output use. This is
+    the single-source-of-truth fix: the graph must never independently
+    re-derive its own path list from a separate capabilities_detected
+    reconstruction, because that guarantees the two will eventually diverge
+    (which is exactly the bug this replaces).
 
-    # Add the agent/server as a node
+    Every node added here comes from an actual step in an actual attack
+    path -- there are no pre-populated placeholder nodes, so a node can never
+    appear disconnected with zero edges.
+    """
+    # prepopulate=False: only add nodes an actual attack path touches, then
+    # prune any left with zero edges (fixes the "AWS/Cloud" and "Tool
+    # Response" disconnected/orphaned node bug -- those were always-added
+    # placeholder nodes from ATTACKER_ENTRY_NODES/CROWN_JEWEL_NODES that had
+    # no edges unless a matching capability happened to fire).
+    g = AttackGraph(prepopulate=False)
+
+    agent_label = result.metadata.get("agent_name", result.target.split("/")[-1]) if result.metadata else result.target.split("/")[-1]
     agent_node = Node(
         id="agent",
-        type=NodeType.AGENT if scanner in {"agent_scanner", "source_scanner"} else NodeType.MCP_SERVER,
-        label=result.metadata.get("agent_name", result.target.split("/")[-1]),
+        type=NodeType.AGENT if result.scanner_type in {"agent_scanner", "source_scanner", "merged"} else NodeType.MCP_SERVER,
+        label=agent_label,
         trust_boundary=True,
-        properties={
-            "target": result.target,
-            "tool_count": result.metadata.get("tool_count", 0),
-            "has_auth": result.metadata.get("has_auth", False),
-        }
+        properties={"target": result.target},
     )
-    g.add_node(agent_node)
 
-    # Agent trusts user prompt -> add injection edge
-    g.add_edge(Edge(
-        src="user_prompt", dst="agent",
-        type=EdgeType.INJECTS,
-        label="prompt injection",
-        confidence=0.9,
-        mitre=["AML.T0051"],
-    ))
-
-    # Map capabilities to graph edges
-    if "code_execution" in caps:
-        g.add_node(Node(
-            id="code_runtime",
-            type=NodeType.PROCESS,
-            label="Code Interpreter / Eval Runtime",
-            properties={"impact": "Arbitrary code execution and eval-based runtime abuse"},
-        ))
-
-    cap_edge_map: dict[str, list[tuple]] = {
-        "shell_exec": [
-            ("agent", "shell_process", EdgeType.EXECUTES, 1.0, ["AML.T0017"]),
-        ],
-        "code_execution": [
-            ("agent", "code_runtime", EdgeType.EXECUTES, 1.0, ["AML.T0017"]),
-        ],
-        "secret_access": [
-            ("agent", "aws_credentials", EdgeType.READS, 1.0, ["AML.T0051"]),
-            ("agent", "api_keys", EdgeType.READS, 0.9, ["AML.T0051"]),
-        ],
-        "network_egress": [
-            ("agent", "external_network", EdgeType.EXFILTRATES, 0.85, ["AML.T0040"]),
-        ],
-        "database": [
-            ("agent", "database_contents", EdgeType.READS, 1.0, ["AML.T0051"]),
-            ("agent", "pii_store", EdgeType.READS, 0.8, ["AML.T0051"]),
-        ],
-        "file_write": [
-            ("agent", "filesystem", EdgeType.WRITES, 1.0, ["AML.T0048"]),
-        ],
-        "file_read": [
-            ("agent", "filesystem", EdgeType.READS, 1.0, ["AML.T0051"]),
-        ],
-        "cloud_api": [
-            ("agent", "aws_credentials", EdgeType.ESCALATES, 0.8, ["AML.T0048"]),
-        ],
-    }
-
-    for cap in caps:
-        if cap in cap_edge_map:
-            for src, dst, etype, conf, mitre in cap_edge_map[cap]:
-                # Add tool node if we know which tool
-                tools_for_cap = cap_to_tools.get(cap, [])
-                if tools_for_cap:
-                    tool_id = f"tool_{cap}"
-                    tool_node = Node(
-                        id=tool_id,
-                        type=NodeType.TOOL,
-                        label=tools_for_cap[0],
-                        properties={"capability": cap, "all_tools": tools_for_cap},
-                    )
-                    g.add_node(tool_node)
-                    # agent calls tool
-                    g.add_edge(Edge(
-                        src="agent", dst=tool_id,
-                        type=EdgeType.CALLS,
-                        label=f"invokes {tools_for_cap[0]}",
-                        confidence=1.0,
-                    ))
-                    # tool accesses resource
-                    g.add_edge(Edge(
-                        src=tool_id, dst=dst,
-                        type=etype,
-                        label=f"{etype.value} via {tools_for_cap[0]}",
-                        confidence=conf,
-                        mitre=mitre,
-                    ))
-                else:
-                    # Direct edge agent -> resource
-                    g.add_edge(Edge(
-                        src=src, dst=dst,
-                        type=etype,
-                        label=f"{cap} capability",
-                        confidence=conf,
-                        mitre=mitre,
-                    ))
-
-    # Shell -> credentials escalation path (if both exist)
-    if "shell_exec" in caps and "secret_access" in caps:
+    for path in (result.attack_paths or []):
+        entry_id = "user_prompt"
+        g.add_predefined_entry_node(entry_id)
+        g.add_node(agent_node)
         g.add_edge(Edge(
-            src="shell_process", dst="aws_credentials",
-            type=EdgeType.READS,
-            label="read env vars / credential files",
-            confidence=0.9,
-            mitre=["AML.T0051"],
+            src=entry_id, dst="agent", type=EdgeType.INJECTS,
+            label="prompt injection", confidence=0.9, mitre=["AML.T0051"],
         ))
 
-    # Credentials -> external (if network exists)
-    if "secret_access" in caps and "network_egress" in caps:
-        g.add_edge(Edge(
-            src="aws_credentials", dst="external_network",
-            type=EdgeType.EXFILTRATES,
-            label="POST to attacker server",
-            confidence=0.85,
-            mitre=["AML.T0040"],
-        ))
-        g.add_edge(Edge(
-            src="api_keys", dst="external_network",
-            type=EdgeType.EXFILTRATES,
-            label="POST to attacker server",
-            confidence=0.85,
-            mitre=["AML.T0040"],
-        ))
+        prev_id = "agent"
+        last_target_id = None
+        last_target_node = None
 
-    # Database -> external (if network exists)
-    if "database" in caps and "network_egress" in caps:
-        g.add_edge(Edge(
-            src="database_contents", dst="external_network",
-            type=EdgeType.EXFILTRATES,
-            label="exfiltrate query results",
-            confidence=0.8,
-            mitre=["AML.T0040"],
-        ))
+        for step in (path.steps or []):
+            tag, spec = _node_spec_for_finding(step)
+            if not spec:
+                continue  # skip steps we can't map to a concrete mechanism
 
-    # Shell -> filesystem
-    if "shell_exec" in caps:
-        g.add_edge(Edge(
-            src="shell_process", dst="filesystem",
-            type=EdgeType.WRITES,
-            label="write malicious files",
-            confidence=0.95,
-            mitre=["AML.T0048"],
-        ))
+            tool_name = _finding_tool_name(step)
+            tool_id = "tool_" + "".join(c if c.isalnum() else "_" for c in tool_name.lower())
+
+            tool_node = Node(
+                id=tool_id, type=NodeType.TOOL, label=tool_name,
+                properties={"capability": tag, "finding_id": step.id},
+            )
+            g.add_node(tool_node)
+            g.add_edge(Edge(
+                src=prev_id, dst=tool_id, type=EdgeType.CALLS,
+                label="invokes " + tool_name, confidence=1.0,
+            ))
+
+            target_node = Node(
+                id=spec["node_id"], type=spec["node_type"], label=spec["label"],
+                is_crown_jewel=(spec["node_type"] == NodeType.CROWN_JEWEL or spec["crown_jewel_value"] > 50),
+                crown_jewel_value=spec["crown_jewel_value"],
+                properties={"impact": spec["impact"]},
+            )
+            g.add_node(target_node)
+            g.add_edge(Edge(
+                src=tool_id, dst=spec["node_id"], type=spec["edge_type"],
+                label=spec["edge_type"].value + " via " + tool_name,
+                confidence=0.9, mitre=spec["mitre"],
+            ))
+
+            prev_id = tool_id
+            last_target_id = spec["node_id"]
+            last_target_node = target_node
 
     g.prune_disconnected_nodes()
     return g
+
+
+
+def graph_paths_from_attack_paths(result: ScanResult, g: AttackGraph) -> list[GraphPath]:
+    """
+    Convert result.attack_paths DIRECTLY into GraphPath objects, one for one.
+
+    This is the actual single-source-of-truth fix: g.find_attack_paths() does
+    its own independent BFS reconstruction over the graph\'s nodes/edges and
+    dedupes multiple paths that happen to share the same (entry, crown_jewel)
+    pair -- which under-counts relative to result.attack_paths whenever two
+    distinct attack chains reach the same crown jewel by different
+    mechanisms (e.g. "Credential exfiltration" via network_egress and "Cloud
+    privilege escalation" via cloud_api both ending at aws_credentials).
+
+    The PDF/compliance/JSON/SARIF outputs all report len(result.attack_paths)
+    directly. For the graph to show the same count and the same named paths,
+    it must consume that same list rather than re-deriving its own -- so this
+    function is what agentscan.ui_server._get_graph() and cli_graph\'s
+    terminal renderer should call instead of g.find_attack_paths().
+    """
+    graph_paths: list[GraphPath] = []
+
+    for path in (result.attack_paths or []):
+        node_objs: list[Node] = []
+        edge_objs: list[Edge] = []
+
+        entry_node = g.nodes.get("user_prompt")
+        if entry_node is None:
+            entry_node = ATTACKER_ENTRY_NODES["user_prompt"]
+        node_objs.append(entry_node)
+
+        agent_node = g.nodes.get("agent")
+        if agent_node is not None:
+            node_objs.append(agent_node)
+            edge_objs.append(Edge(src="user_prompt", dst="agent", type=EdgeType.INJECTS,
+                                  label="prompt injection", confidence=0.9, mitre=["AML.T0051"]))
+
+        prev_id = "agent"
+        crown_node = None
+
+        for step in (path.steps or []):
+            tag, spec = _node_spec_for_finding(step)
+            if not spec:
+                continue
+            tool_name = _finding_tool_name(step)
+            tool_id = "tool_" + "".join(c if c.isalnum() else "_" for c in tool_name.lower())
+            tool_node = g.nodes.get(tool_id)
+            if tool_node is None:
+                continue
+            node_objs.append(tool_node)
+            edge_objs.append(Edge(src=prev_id, dst=tool_id, type=EdgeType.CALLS,
+                                  label="invokes " + tool_name, confidence=1.0))
+
+            target_node = g.nodes.get(spec["node_id"])
+            if target_node is not None:
+                node_objs.append(target_node)
+                edge_objs.append(Edge(src=tool_id, dst=spec["node_id"], type=spec["edge_type"],
+                                      label=spec["edge_type"].value + " via " + tool_name,
+                                      confidence=0.9, mitre=spec["mitre"]))
+                crown_node = target_node
+
+            prev_id = tool_id
+
+        if crown_node is None:
+            # Path had no mappable steps -- skip rather than emit a broken GraphPath
+            continue
+
+        exploitability = _score_exploitability(node_objs, edge_objs)
+        impact = crown_node.crown_jewel_value or 50
+
+        graph_paths.append(GraphPath(
+            nodes=node_objs,
+            edges=edge_objs,
+            entry_point=entry_node,
+            crown_jewel=crown_node,
+            exploitability=exploitability,
+            impact=impact,
+            composite_score=exploitability * impact,
+            title=path.title,
+            description=path.description,
+            mitre_atlas=list(path.mitre_atlas or []),
+        ))
+
+    return graph_paths
 
 
 def graph_paths_to_attack_paths(paths: list[GraphPath]) -> list[AttackPath]:

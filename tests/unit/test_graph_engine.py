@@ -60,25 +60,28 @@ def test_trust_score_deducts_for_no_auth():
 
 
 def test_build_graph_from_scan():
-    result = ScanResult(
-        target="test_agent.yaml",
-        scanner_type="agent_scanner",
-        metadata={
-            "capabilities_detected": ["shell_exec", "network_egress", "secret_access"],
-            "cap_to_tools": {
-                "shell_exec": ["bash_tool"],
-                "network_egress": ["http_client"],
-                "secret_access": ["vault_reader"],
-            },
-            "tool_count": 3,
-        }
-    )
+    """
+    build_graph_from_scan now builds strictly from result.attack_paths (the
+    single-source-of-truth fix for the graph/PDF consistency bug) -- a bare
+    capabilities_detected metadata dict with no attack_paths produces an
+    empty graph. Use the real agent_scanner on a fixture with combining
+    capabilities so real AttackPath objects with real Finding steps exist,
+    matching how the graph is actually populated in production.
+    """
+    from agentscan.scanners.agent_scanner import scan_agent_config
+    result = scan_agent_config("examples/agent_configs/dangerous_agent.yaml")
+    assert len(result.attack_paths) >= 3, "fixture should combine into several attack paths"
+
     g = build_graph_from_scan(result)
-    paths = g.find_attack_paths()
-    assert len(paths) >= 3
-    # Exfil path should exist (secret_access + network_egress)
+    from agentscan.graph.engine import graph_paths_from_attack_paths
+    paths = graph_paths_from_attack_paths(result, g)
+
+    assert len(paths) == len(result.attack_paths), (
+        "graph paths must exactly match result.attack_paths -- this is the "
+        "single-source-of-truth invariant the whole fix exists to guarantee"
+    )
     titles = [p.title for p in paths]
-    assert any("Credentials" in t or "AWS" in t for t in titles)
+    assert any("Credential" in t or "Cloud" in t for t in titles)
 
 
 def test_path_scoring_orders_by_impact():

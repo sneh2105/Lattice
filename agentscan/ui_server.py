@@ -459,12 +459,17 @@ def _merge_directory_result(dirpath: str):
 
 def _get_graph(target: str) -> dict:
     try:
-        from agentscan.graph.engine import build_graph_from_scan
+        from agentscan.graph.engine import build_graph_from_scan, graph_paths_from_attack_paths
         result = _build_merged_result(target)
         if result.error:
             return {"error": result.error}
         graph = build_graph_from_scan(result)
-        paths = graph.find_attack_paths()
+        # Use the direct 1:1 converter, NOT graph.find_attack_paths() -- that
+        # does its own independent BFS reconstruction and dedupes multiple
+        # paths sharing the same (entry, crown_jewel) pair, which would
+        # under-count relative to result.attack_paths (the same list PDF/
+        # compliance/SARIF report from). Single source of truth.
+        paths = graph_paths_from_attack_paths(result, graph)
         return _serialize_graph(graph, paths)
     except Exception as e:
         return {"error": str(e)}

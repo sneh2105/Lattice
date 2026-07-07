@@ -18,7 +18,7 @@ from pathlib import Path
 from agentscan._fileutil import atomic_write_text
 
 from agentscan.scanners.agent_scanner import scan_agent_config
-from agentscan.graph.engine import build_graph_from_scan, graph_paths_to_attack_paths
+from agentscan.graph.engine import build_graph_from_scan, graph_paths_to_attack_paths, graph_paths_from_attack_paths
 from agentscan.graph.visualiser import render_terminal, render_html
 from agentscan.scanners.mcp_scanner_v2 import scan_mcp_v2
 from agentscan.scanners.mcp_trust_chain import MCPTrustChain, MCPTrustChainReport
@@ -46,7 +46,10 @@ def cmd_graph_agent(args):
         print(f"Error: {result.error}", file=sys.stderr); sys.exit(1)
 
     graph = build_graph_from_scan(result)
-    paths = graph.find_attack_paths()
+    # Direct 1:1 conversion from result.attack_paths -- the same list the PDF/
+    # compliance/JSON/SARIF outputs use -- not graph.find_attack_paths()'s own
+    # BFS reconstruction, which can under-count paths sharing a crown jewel.
+    paths = graph_paths_from_attack_paths(result, graph)
     print(render_terminal(graph, paths))
 
     print(_col(BOLD, "  Blast Radius Analysis"))

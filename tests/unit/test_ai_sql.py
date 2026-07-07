@@ -6,14 +6,42 @@ from agentscan.graph.engine import build_graph_from_scan
 from agentscan.graph.ai_sql import AISQLEngine
 
 
-def make_engine():
-    result = ScanResult(
+def _make_synthetic_result(caps, cap_to_tools=None):
+    """Build a ScanResult with real Finding/AttackPath objects so
+    build_graph_from_scan (which now consumes result.attack_paths directly,
+    the single-source-of-truth fix) has something to build a graph from."""
+    from agentscan.models import Finding, AttackPath, Severity, ConfidenceLevel
+
+    cap_to_tools = cap_to_tools or {c: [c] for c in caps}
+    findings = []
+    for cap in caps:
+        tool = (cap_to_tools.get(cap) or [cap])[0]
+        findings.append(Finding(
+            id="TEST-CAP-" + cap.upper() + "-" + tool.upper(),
+            title="Tool '" + tool + "' grants " + cap,
+            severity=Severity.HIGH, confidence=ConfidenceLevel.HIGH, scanner="test",
+            explanation="", impact="", remediation="",
+            tags=["tool-permissions", cap],
+        ))
+    attack_paths = []
+    if findings:
+        attack_paths.append(AttackPath(
+            id="TEST-PATH-1", title="Synthetic test attack path",
+            severity=Severity.CRITICAL, steps=findings,
+            entry_point="Prompt injection", impact="Test impact",
+            description="Synthetic path for testing.", mitre_atlas=["AML.T0051"],
+        ))
+    return ScanResult(
         target="test.yaml", scanner_type="agent_scanner",
-        metadata={
-            "capabilities_detected": ["shell_exec", "secret_access", "network_egress"],
-            "cap_to_tools": {"shell_exec": ["bash"], "secret_access": ["vault"], "network_egress": ["http"]},
-            "tool_count": 3,
-        },
+        findings=findings, attack_paths=attack_paths,
+        metadata={"capabilities_detected": caps, "cap_to_tools": cap_to_tools, "tool_count": len(caps)},
+    )
+
+
+def make_engine():
+    result = _make_synthetic_result(
+        ["shell_exec", "secret_access", "network_egress"],
+        {"shell_exec": ["bash"], "secret_access": ["vault"], "network_egress": ["http"]},
     )
     graph = build_graph_from_scan(result)
     return AISQLEngine(graph)

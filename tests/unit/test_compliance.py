@@ -177,13 +177,23 @@ def test_get_graph_for_github_repo_clones_and_builds_graph(monkeypatch, tmp_path
 
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
+    # Two tools whose capabilities combine into a real attack path --
+    # build_graph_from_scan now builds strictly from result.attack_paths
+    # (the single-source-of-truth fix), so a single lone capability with no
+    # combination partner produces zero attack paths and therefore zero
+    # graph nodes. A shell_exec + network_egress pair does combine.
     (repo_dir / "agent.py").write_text(
         "from langchain.tools import tool\n\n"
         "@tool\n"
         "def run_shell(cmd: str) -> str:\n"
         "    \"\"\"Run shell commands.\"\"\"\n"
         "    import subprocess\n"
-        "    return subprocess.run(cmd, shell=True).stdout\n",
+        "    return subprocess.run(cmd, shell=True).stdout\n\n"
+        "@tool\n"
+        "def fetch_url(url: str) -> str:\n"
+        "    \"\"\"Fetch content from a URL.\"\"\"\n"
+        "    import requests\n"
+        "    return requests.get(url).text\n",
         encoding="utf-8",
     )
 
@@ -194,6 +204,16 @@ def test_get_graph_for_github_repo_clones_and_builds_graph(monkeypatch, tmp_path
             self.stdout = ""
 
     def fake_run(cmd, capture_output, text, timeout):
+        import shutil
+        # Simulate `git clone <url> <dest>` by actually copying repo_dir's
+        # content into the destination -- the mock must do real work here,
+        # not just report success, or this test doesn't actually exercise
+        # graph construction on real content (it was previously "passing"
+        # only because the old graph builder always emitted non-empty
+        # placeholder nodes regardless of whether any scan data existed --
+        # exactly the orphan-node bug this whole fix addresses).
+        dest = cmd[-1]
+        shutil.copytree(str(repo_dir), dest, dirs_exist_ok=True)
         return DummyCompletedProcess()
 
     monkeypatch.setattr("agentscan.ui_server.subprocess.run", fake_run)
@@ -202,17 +222,33 @@ def test_get_graph_for_github_repo_clones_and_builds_graph(monkeypatch, tmp_path
 
     assert "error" not in graph_payload, f"Graph build failed: {graph_payload.get('error')}"
     assert graph_payload.get("nodes"), "GitHub graph should include nodes"
+    assert graph_payload.get("paths"), "GitHub graph should include the shell_exec+network_egress attack path"
 
 
 def test_build_graph_prunes_disconnected_nodes_and_uses_agent_type():
     """The graph should discard disconnected nodes and label source-scan agents as agents, not MCP servers."""
     from agentscan.graph.engine import build_graph_from_scan
     from agentscan.graph.nodes import Node, NodeType
-    from agentscan.models import ScanResult
+    from agentscan.models import ScanResult, Finding, AttackPath, Severity, ConfidenceLevel
 
+    # build_graph_from_scan now builds strictly from result.attack_paths
+    # (the single-source-of-truth fix) -- a bare capabilities_detected list
+    # with no attack_paths produces an empty graph, so the fixture needs a
+    # real Finding + AttackPath, same shape a real scanner would produce.
+    finding = Finding(
+        id="TEST-SHELL", title="Tool 'run_shell' grants shell_exec",
+        severity=Severity.CRITICAL, confidence=ConfidenceLevel.HIGH, scanner="source_scanner",
+        explanation="", impact="", remediation="", tags=["tool-permissions", "shell_exec"],
+    )
     result = ScanResult(
         target="/tmp/repo",
         scanner_type="source_scanner",
+        findings=[finding],
+        attack_paths=[AttackPath(
+            id="TEST-PATH", title="Shell exec path", severity=Severity.CRITICAL,
+            steps=[finding], entry_point="Prompt injection", impact="RCE",
+            description="Test path.", mitre_atlas=["AML.T0017"],
+        )],
         metadata={"capabilities_detected": ["shell_exec"], "cap_to_tools": {"shell_exec": ["run_shell"]}},
     )
 
@@ -297,3 +333,114 @@ def test_pdf_and_sarif_use_same_merged_result_as_compliance():
     # findings which SARIF may filter, so just assert it's not suspiciously low)
     assert len(sarif_results) > 0
     assert len(result.findings) > 2, "Merged result underlying SARIF/PDF must include MCP findings"
+
+
+def test_graph_paths_exactly_match_pdf_attack_paths():
+    """
+    The exact assertion requested in the graph/PDF-consistency issue:
+    every path that appears in the PDF/compliance/JSON output must also
+    appear in the Attack Graph -- same count, same titles, connected by
+    real edges. This is the single test that would have caught every
+    instance of the graph/PDF divergence bug reported across this thread.
+    """
+    from agentscan.scanners.agent_scanner import scan_agent_config
+    from agentscan.graph.engine import build_graph_from_scan, graph_paths_from_attack_paths
+
+    result = scan_agent_config("examples/agent_configs/dangerous_agent.yaml")
+    graph = build_graph_from_scan(result)
+    graph_paths = graph_paths_from_attack_paths(result, graph)
+
+    # Exact count match -- the core invariant
+    assert len(graph_paths) == len(result.attack_paths), (
+        f"Graph shows {len(graph_paths)} paths but PDF/JSON report "
+        f"{len(result.attack_paths)} -- these must always be identical"
+    )
+
+    # Every PDF attack path title must appear as a graph path title
+    pdf_titles = {p.title for p in result.attack_paths}
+    graph_titles = {p.title for p in graph_paths}
+    assert pdf_titles == graph_titles, (
+        f"Titles diverge. In PDF only: {pdf_titles - graph_titles}. "
+        f"In graph only: {graph_titles - pdf_titles}."
+    )
+
+    # Every graph path must be an actual connected edge sequence, not a
+    # disconnected collection of nodes -- entry -> ... -> crown jewel with
+    # a real edge for every hop.
+    for gp in graph_paths:
+        assert len(gp.edges) >= 1, f"Path '{gp.title}' has no edges"
+        assert len(gp.nodes) >= 2, f"Path '{gp.title}' has fewer than 2 nodes"
+
+
+def test_graph_has_no_orphan_nodes():
+    """
+    Every node in a built graph must have at least one edge. Placeholder
+    nodes like "AWS / Cloud Credentials" or "Tool Response" must never
+    render disconnected just because they exist in the predefined node
+    constants -- a node only appears if a real attack path actually reached it.
+    """
+    from agentscan.scanners.agent_scanner import scan_agent_config
+    from agentscan.graph.engine import build_graph_from_scan
+
+    result = scan_agent_config("examples/agent_configs/dangerous_agent.yaml")
+    graph = build_graph_from_scan(result)
+
+    connected_ids = set()
+    for e in graph.edges:
+        connected_ids.add(e.src)
+        connected_ids.add(e.dst)
+
+    orphans = set(graph.nodes.keys()) - connected_ids
+    assert not orphans, f"Orphan (disconnected) nodes found: {orphans}"
+
+
+def test_eval_and_shell_exec_render_as_distinct_node_types():
+    """
+    A finding where python eval()/exec() is called must render as a
+    distinct node ("Code Execution (Arbitrary Python)") from a finding
+    where a shell command is run ("OS Shell / Command Execution") -- these
+    are different exploitation mechanisms with different remediation.
+    """
+    from agentscan.graph.engine import _node_spec_for_finding
+    from agentscan.models import Finding, Severity, ConfidenceLevel
+
+    eval_finding = Finding(
+        id="EVAL-1", title="Tool 'x' can execute arbitrary code via eval()",
+        severity=Severity.CRITICAL, confidence=ConfidenceLevel.HIGH, scanner="test",
+        explanation="", impact="", remediation="",
+        tags=["tool-permissions", "code_execution", "behavioral-detection"],
+    )
+    shell_finding = Finding(
+        id="SHELL-1", title="Tool 'y' can execute shell commands",
+        severity=Severity.CRITICAL, confidence=ConfidenceLevel.HIGH, scanner="test",
+        explanation="", impact="", remediation="",
+        tags=["tool-permissions", "shell_exec"],
+    )
+
+    eval_tag, eval_spec = _node_spec_for_finding(eval_finding)
+    shell_tag, shell_spec = _node_spec_for_finding(shell_finding)
+
+    assert eval_spec["node_id"] != shell_spec["node_id"]
+    assert eval_spec["label"] != shell_spec["label"]
+    assert "Python" in eval_spec["label"] or "Code Execution" in eval_spec["label"]
+    assert "Shell" in shell_spec["label"] or "Command" in shell_spec["label"]
+
+
+def test_mcp_derived_graph_paths_also_match_exactly():
+    """
+    Same invariant as test_graph_paths_exactly_match_pdf_attack_paths, but
+    for a target with MCP-derived findings -- the case that was actually
+    broken (MCP raw tags like MCP-DATABASE weren't recognized by the graph's
+    finding-to-node-type mapping, only the translated capability names were).
+    """
+    from agentscan.ui_server import _build_merged_result, _get_graph
+
+    target = "examples/vulnerable_agents/04_database_exfiltration/"
+    result = _build_merged_result(target)
+    graph_payload = _get_graph(target)
+
+    assert "error" not in graph_payload
+    assert len(graph_payload["paths"]) == len(result.attack_paths)
+    pdf_titles = {p.title for p in result.attack_paths}
+    graph_titles = {p["title"] for p in graph_payload["paths"]}
+    assert pdf_titles == graph_titles
