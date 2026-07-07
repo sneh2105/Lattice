@@ -363,7 +363,7 @@ async function runScan() {
     result = await resp.json();
     if (result.error) { showErr(result.error); return; }
     curResult = result; curTarget = result.source_root || target;
-    addHist(target, result.risk_score||0, result.type||result.scanner_type);
+    addHist(target, (result.raw_score !== undefined ? result.raw_score : result.risk_score) || 0, result.type||result.scanner_type);
     renderResults(result, target);
     graphData = null; compData = null;
     loadGraph(target); loadCompliance(target);
@@ -446,21 +446,35 @@ function renderResults(d, target) {
 
   // SUMMARY
   h+='<div id="t-summary">';
-  h+='<div class="metrics">';
+  var rawScore = (d.raw_score !== undefined) ? d.raw_score : score;
   var governedScore = (d.governed_score !== undefined) ? d.governed_score : score;
   var excludedCount = d.findings_excluded_from_governed || 0;
-  h+='<div class="metric"><div class="mlbl">Risk Score</div><div class="mval" style="color:'+rc(score)+'">'+score+'<span style="font-size:13px;color:var(--muted)">/100</span></div>';
-  if(excludedCount > 0){
-    h+='<div class="msub">Raw score (all findings)</div>';
-    h+='<div style="font-size:11px;color:var(--green);margin-top:4px">Governed: '+governedScore+'/100 ('+excludedCount+' reviewed)</div>';
+  var reviewedAtAll = excludedCount > 0 || (d.findings_removed_as_fp_or_remediated || 0) > 0;
+
+  if(reviewedAtAll){
+    // Two-number display so nobody can misread "we accepted some risk" as
+    // "the code got safer" -- residual technical risk (what the code
+    // objectively still exposes; includes accepted_risk findings) shown
+    // separately from governed risk (what a CISO/auditor should act on;
+    // excludes accepted_risk, false_positive, and remediated findings).
+    h+='<div class="metrics">';
+    h+='<div class="metric"><div class="mlbl">Residual Technical Risk</div><div class="mval" style="color:'+rc(rawScore)+'">'+rawScore+'<span style="font-size:13px;color:var(--muted)">/100</span></div><div class="msub">What the code still exposes</div><div class="rbar"><div class="rfill" style="width:'+rawScore+'%;background:'+rc(rawScore)+'"></div></div></div>';
+    h+='<div class="metric"><div class="mlbl">Governed Risk (post-review)</div><div class="mval" style="color:'+rc(governedScore)+'">'+governedScore+'<span style="font-size:13px;color:var(--muted)">/100</span></div><div class="msub">'+excludedCount+' finding(s) reviewed and excluded</div><div class="rbar"><div class="rfill" style="width:'+governedScore+'%;background:'+rc(governedScore)+'"></div></div></div>';
+    h+='<div class="metric"><div class="mlbl">Critical</div><div class="mval" style="color:var(--red)">'+cnt.CRITICAL+'</div><div class="msub">'+cnt.HIGH+' high</div></div>';
+    h+='<div class="metric"><div class="mlbl">Attack Paths</div><div class="mval" style="color:'+(paths.length?'var(--red)':'var(--green)')+'">'+paths.length+'</div><div class="msub">complete chains</div></div>';
+    h+='</div>';
+    if((d.needs_reverification||[]).length){
+      h+='<div class="paction" style="background:rgba(88,166,255,.06);border-color:rgba(88,166,255,.2);color:var(--accent);margin-bottom:16px">'
+        +(d.needs_reverification.length)+' finding(s) marked Remediated -- re-verify on the next scan to confirm the fix is still in place before fully trusting this status.</div>';
+    }
   } else {
-    h+='<div class="msub">'+rl(score)+'</div>';
+    h+='<div class="metrics">';
+    h+='<div class="metric"><div class="mlbl">Risk Score</div><div class="mval" style="color:'+rc(rawScore)+'">'+rawScore+'<span style="font-size:13px;color:var(--muted)">/100</span></div><div class="msub">'+rl(rawScore)+'</div><div class="rbar"><div class="rfill" id="rfill" style="width:0%;background:'+rc(rawScore)+'"></div></div></div>';
+    h+='<div class="metric"><div class="mlbl">Critical</div><div class="mval" style="color:var(--red)">'+cnt.CRITICAL+'</div><div class="msub">'+cnt.HIGH+' high</div></div>';
+    h+='<div class="metric"><div class="mlbl">Attack Paths</div><div class="mval" style="color:'+(paths.length?'var(--red)':'var(--green)')+'">'+paths.length+'</div><div class="msub">complete chains</div></div>';
+    h+='<div class="metric"><div class="mlbl">Findings</div><div class="mval">'+rep.length+'</div><div class="msub">'+cnt.MEDIUM+' med  '+cnt.LOW+' low</div></div>';
+    h+='</div>';
   }
-  h+='<div class="rbar"><div class="rfill" id="rfill" style="width:0%;background:'+rc(score)+'"></div></div></div>';
-  h+='<div class="metric"><div class="mlbl">Critical</div><div class="mval" style="color:var(--red)">'+cnt.CRITICAL+'</div><div class="msub">'+cnt.HIGH+' high</div></div>';
-  h+='<div class="metric"><div class="mlbl">Attack Paths</div><div class="mval" style="color:'+(paths.length?'var(--red)':'var(--green)')+'">'+paths.length+'</div><div class="msub">complete chains</div></div>';
-  h+='<div class="metric"><div class="mlbl">Findings</div><div class="mval">'+rep.length+'</div><div class="msub">'+cnt.MEDIUM+' med  '+cnt.LOW+' low</div></div>';
-  h+='</div>';
   h+='<div class="sev-strip">';
   ['CRITICAL','HIGH','MEDIUM','LOW','INFO'].forEach(function(s){if(cnt[s])h+='<div class="sev-pill sp-'+s+'"><span class="sev-n">'+cnt[s]+'</span>'+s+'</div>';});
   h+='</div>';
@@ -736,16 +750,40 @@ async function scanPkg(){
 window.scanPkg = scanPkg;
 
 async function autoScanDeps(){
-  if(!curResult||!curResult.dependency_files)return;
+  if(!curResult||!curResult.dependency_files||!Object.keys(curResult.dependency_files).length){
+    var sr0=$('supply-results');
+    if(sr0)sr0.innerHTML='<div class="hint">No requirements.txt, package.json, or pyproject.toml found in this scan.</div>';
+    return;
+  }
   var depFiles=curResult.dependency_files;
   var sr=$('supply-results');
-  if(sr)sr.innerHTML='<div class="cbox" style="min-height:80px"><div class="spinner"></div><div class="lmsg">Scanning dependencies from disk...</div></div>';
+  if(sr)sr.innerHTML='<div class="cbox" style="min-height:80px"><div class="spinner"></div><div class="lmsg">Scanning dependencies...</div></div>';
+
+  // Use the content the original scan already read from disk -- do NOT
+  // re-derive by folder path. For GitHub-scanned targets, curTarget is the
+  // stable github.com/... URL (correct for risk-acceptance keying) but is
+  // NOT a real filesystem path, so a folder-based re-lookup on the backend
+  // silently finds nothing. The dependency file CONTENT was already read
+  // correctly during the original scan (from the server's real clone
+  // directory) and is sitting right here in curResult -- just use it.
+  var pkgManager = 'pypi', fileEntry = null, sourcePath = '';
+  if(depFiles.requirements){ fileEntry = depFiles.requirements; pkgManager = 'pypi'; }
+  else if(depFiles.package_json){ fileEntry = depFiles.package_json; pkgManager = 'npm'; }
+  else if(depFiles.pyproject){ fileEntry = depFiles.pyproject; pkgManager = 'pyproject'; }
+
+  if(!fileEntry || !fileEntry.content){
+    if(sr)sr.innerHTML='<div class="hint">Dependency file was detected but its content was not returned by the scan. Paste it manually below.</div>';
+    return;
+  }
+  sourcePath = fileEntry.path || '';
+
   try{
     var resp=await fetch('/api/supply_chain',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({folder:curTarget})});
+      body:JSON.stringify({content: fileEntry.content, pkg_manager: pkgManager})});
     var d=await resp.json();
+    if(d.error){ if(sr)sr.innerHTML='<div class="hint">'+esc(d.error)+'</div>'; return; }
     renderSupply(d.packages||[]);
-    if(d.source_path){var sr2=$('supply-results');if(sr2)sr2.innerHTML='<div class="hint" style="margin-bottom:8px">From: '+esc(d.source_path)+'</div>'+sr2.innerHTML;}
+    if(sourcePath){var sr2=$('supply-results');if(sr2)sr2.innerHTML='<div class="hint" style="margin-bottom:8px">From: '+esc(sourcePath)+'</div>'+sr2.innerHTML;}
   }catch(e){if(sr)sr.innerHTML='<div class="hint">'+esc(e.message)+'</div>';}
 }
 window.autoScanDeps = autoScanDeps;

@@ -113,7 +113,12 @@ def test_invalid_status_rejected():
                            status="not_a_real_status", reason="x", reviewer="y")
 
 
-def test_governed_score_excludes_non_open_findings():
+def test_accepted_risk_stays_in_raw_score_but_excluded_from_governed():
+    """
+    Accept Risk must NOT make the underlying code look safer -- the risk
+    objectively still exists in the code, you've just chosen to tolerate it.
+    Only the governed (post-review) score should improve.
+    """
     from agentscan.risk_register import set_finding_status, annotate_findings, compute_governed_score
 
     set_finding_status(target="t.yaml", finding_id="F1", finding_title="Critical issue",
@@ -124,32 +129,95 @@ def test_governed_score_excludes_non_open_findings():
         {"id": "F2", "severity": "HIGH", "title": "Still open issue"},
     ]
     annotate_findings(findings, "t.yaml")
-    scores = compute_governed_score(findings, raw_score=65)
+    scores = compute_governed_score(findings)
 
-    assert scores["raw_score"] == 65
-    # Only F2 (HIGH, still open) should count toward governed score
+    # raw_score includes F1 (accepted_risk) -- residual risk is unchanged
+    assert scores["raw_score"] == 40 + 25  # CRITICAL + HIGH weight, both still counted
+    # governed_score excludes F1 -- only F2 counts
+    assert scores["governed_score"] == 25
     assert scores["governed_score"] < scores["raw_score"]
     assert scores["findings_excluded_from_governed"] == 1
+    assert scores["findings_accepted_risk"] == 1
 
 
-def test_remediated_and_false_positive_also_excluded_from_governed_score():
+def test_false_positive_removed_from_raw_score_not_just_governed():
+    """
+    The exact bug reported: marking a finding false_positive did not change
+    the raw score at all, because raw_score was passed through unchanged
+    from the pre-review scanner value. A false positive is a claim the
+    finding is WRONG, not a risk-tolerance decision -- it must be removed
+    from every score, including raw, or the score is lying about what was
+    actually confirmed.
+    """
     from agentscan.risk_register import set_finding_status, annotate_findings, compute_governed_score
 
     set_finding_status(target="t2.yaml", finding_id="F1", finding_title="X",
                        status="false_positive", reason="not exploitable", reviewer="QA")
-    set_finding_status(target="t2.yaml", finding_id="F2", finding_title="Y",
+
+    findings = [
+        {"id": "F1", "severity": "CRITICAL", "title": "X"},  # false positive
+        {"id": "F2", "severity": "LOW", "title": "Z"},        # still open
+    ]
+    annotate_findings(findings, "t2.yaml")
+    scores = compute_governed_score(findings)
+
+    # F1 must be gone from BOTH scores -- this is the core regression check
+    assert scores["raw_score"] == 3, "false_positive must be removed from raw_score, not just governed"
+    assert scores["governed_score"] == 3
+    assert scores["findings_removed_as_fp_or_remediated"] == 1
+
+
+def test_remediated_removed_from_raw_score_and_flagged_for_reverification():
+    """
+    Remediated findings must also be removed from raw score (the fix is
+    claimed to already be in place), but flagged for re-verification on the
+    next scan rather than being permanently trusted without ever checking
+    again -- a regression should still be catchable.
+    """
+    from agentscan.risk_register import set_finding_status, annotate_findings, compute_governed_score
+
+    set_finding_status(target="t3.yaml", finding_id="F1", finding_title="X",
                        status="remediated", reason="patched in v2", reviewer="QA")
 
     findings = [
-        {"id": "F1", "severity": "CRITICAL", "title": "X"},
-        {"id": "F2", "severity": "CRITICAL", "title": "Y"},
-        {"id": "F3", "severity": "LOW", "title": "Z"},
+        {"id": "F1", "severity": "CRITICAL", "title": "X"},  # remediated
+        {"id": "F2", "severity": "MEDIUM", "title": "Y"},     # still open
     ]
-    annotate_findings(findings, "t2.yaml")
-    scores = compute_governed_score(findings, raw_score=90)
+    annotate_findings(findings, "t3.yaml")
+    scores = compute_governed_score(findings)
 
-    assert scores["findings_excluded_from_governed"] == 2
-    assert scores["open_findings_count"] == 1
+    assert scores["raw_score"] == 10, "remediated must be removed from raw_score too"
+    assert scores["governed_score"] == 10
+    assert scores["findings_removed_as_fp_or_remediated"] == 1
+    assert "F1" in scores["needs_reverification"]
+
+
+def test_all_three_statuses_side_by_side():
+    """Composite check: one finding in each of the 4 states, verify each
+    contributes to the two scores exactly as specified."""
+    from agentscan.risk_register import set_finding_status, annotate_findings, compute_governed_score
+
+    set_finding_status(target="t4.yaml", finding_id="ACCEPTED", finding_title="a",
+                       status="accepted_risk", reason="r", reviewer="QA")
+    set_finding_status(target="t4.yaml", finding_id="FP", finding_title="b",
+                       status="false_positive", reason="r", reviewer="QA")
+    set_finding_status(target="t4.yaml", finding_id="REMEDIATED", finding_title="c",
+                       status="remediated", reason="r", reviewer="QA")
+    # OPEN finding gets no status call -- stays "open" by default
+
+    findings = [
+        {"id": "ACCEPTED", "severity": "CRITICAL", "title": "a"},    # stays in raw, excluded from governed
+        {"id": "FP", "severity": "CRITICAL", "title": "b"},          # removed from both
+        {"id": "REMEDIATED", "severity": "CRITICAL", "title": "c"},  # removed from both
+        {"id": "OPEN", "severity": "HIGH", "title": "d"},            # counts in both
+    ]
+    annotate_findings(findings, "t4.yaml")
+    scores = compute_governed_score(findings)
+
+    # raw = ACCEPTED(40) + OPEN(25) = 65  -- FP and REMEDIATED excluded
+    assert scores["raw_score"] == 65
+    # governed = OPEN(25) only -- ACCEPTED also excluded here
+    assert scores["governed_score"] == 25
 
 
 def test_risk_acceptance_visible_across_scan_compliance_and_pdf():

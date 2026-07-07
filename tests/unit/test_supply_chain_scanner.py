@@ -110,3 +110,54 @@ def test_cli_supply_manifest_rejects_unknown_file(tmp_path):
     )
     assert r.returncode == 2
     assert "Unrecognized manifest" in r.stdout
+
+
+def test_supply_chain_auto_scan_uses_content_not_folder_lookup():
+    """
+    Regression: the dashboard's Supply Chain tab re-derived the folder path
+    from curTarget for its auto-scan request. For GitHub-scanned targets,
+    curTarget is the stable "github.com/user/repo" URL (correct, needed for
+    risk-acceptance keying) but is NOT a real filesystem path -- the actual
+    files only exist in an ephemeral server-side clone directory the
+    frontend never sees. A folder-based re-lookup on a URL string silently
+    finds nothing every time. The fix: the frontend must send the
+    dependency file CONTENT it already received from the original /api/scan
+    response, never re-derive by folder path.
+    """
+    from agentscan.ui_server import _find_dependency_files, _get_supply_chain
+
+    # Confirm the actual bug: folder lookup on a non-filesystem string finds nothing
+    result = _find_dependency_files("github.com/fake/repo")
+    assert result == {}, "a URL string must never resolve to real dependency files"
+
+    # Confirm the fix path works: passing content directly always works,
+    # regardless of what the original target string was
+    content = "langchain==0.1.0\nnumpy>=1.24\n"
+    scan_result = _get_supply_chain(content, "pypi")
+    package_names = [p["package_name"] for p in scan_result["packages"]]
+    assert "langchain" in package_names
+    assert "numpy" in package_names
+
+
+def test_dashboard_dependency_files_content_is_actually_usable(tmp_path):
+    """
+    End-to-end: a directory scan must return dependency_files with real,
+    non-empty content that can be piped straight into supply chain scanning
+    without any further filesystem access -- this is what the dashboard's
+    fixed autoScanDeps() now relies on entirely.
+    """
+    from agentscan.ui_server import _scan_target, _get_supply_chain
+
+    (tmp_path / "agent.py").write_text(
+        "from langchain.tools import tool\n@tool\ndef x(y: str) -> str:\n    \"\"\"do a thing\"\"\"\n    return y\n"
+    )
+    (tmp_path / "requirements.txt").write_text("requests==2.31.0\n")
+
+    scan = _scan_target(str(tmp_path))
+    dep_files = scan.get("dependency_files", {})
+    assert "requirements" in dep_files
+    content = dep_files["requirements"]["content"]
+    assert content.strip() == "requests==2.31.0"
+
+    supply_result = _get_supply_chain(content, "pypi")
+    assert any(p["package_name"] == "requests" for p in supply_result["packages"])

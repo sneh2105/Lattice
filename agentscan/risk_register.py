@@ -33,10 +33,6 @@ _REGISTER_PATH = Path.home() / ".agentscan" / "risk_register.json"
 
 VALID_STATUSES = {"open", "accepted_risk", "false_positive", "remediated"}
 
-# Statuses that remove a finding from the GOVERNED risk score.
-# "open" and any unrecognized status count as still-open risk.
-_EXCLUDED_FROM_GOVERNED_SCORE = {"accepted_risk", "false_positive", "remediated"}
-
 
 def _load_register() -> dict:
     if not _REGISTER_PATH.exists():
@@ -170,30 +166,73 @@ def annotate_findings(findings: list, target: str) -> list:
     return findings
 
 
-def compute_governed_score(findings: list, raw_score: int) -> dict:
-    """
-    Compute both raw and governed risk scores for a set of already-annotated
-    findings (each finding dict must have a "status" and "severity" key, as
-    produced by annotate_findings + the normal serializer).
+_SEVERITY_WEIGHT = {"CRITICAL": 40, "HIGH": 25, "MEDIUM": 10, "LOW": 3, "INFO": 0}
 
-    Governed score = risk contribution of only the findings still "open"
-    (i.e. status not in accepted_risk/false_positive/remediated). Uses the
-    same severity weighting the main scanner uses so the number is on a
-    comparable 0-100 scale, not a re-invented metric.
-    """
-    SEVERITY_WEIGHT = {"CRITICAL": 40, "HIGH": 25, "MEDIUM": 10, "LOW": 3, "INFO": 0}
+# Statuses that are a claim the finding itself is WRONG or already FIXED --
+# these are excluded from every score, including the "raw" one. A false
+# positive isn't a risk decision, it's a claim the finding shouldn't exist;
+# a remediated finding is claimed fixed. Neither should count against the
+# code at all once confirmed -- if the score doesn't move after marking
+# something false_positive, that's a bug (this was true before this fix).
+_REMOVED_FROM_EVERY_SCORE = {"false_positive", "remediated"}
 
-    open_findings = [f for f in findings if f.get("status", "open") not in _EXCLUDED_FROM_GOVERNED_SCORE]
-    governed_raw = sum(SEVERITY_WEIGHT.get(f.get("severity", "INFO"), 0) for f in open_findings)
+# Statuses that stay in the RAW/residual score (the risk objectively still
+# exists in the code) but are excluded from the GOVERNED score (a reviewed,
+# owned, documented risk is a different governance state than an
+# unreviewed one -- this is what a CISO/auditor decision should be based on).
+_EXCLUDED_FROM_GOVERNED_ONLY = {"accepted_risk"}
+
+
+def compute_governed_score(findings: list, raw_score: int = None) -> dict:
+    """
+    Compute two risk scores from a set of already status-annotated findings
+    (each dict needs "status" and "severity" keys, as produced by
+    annotate_findings + the normal serializer):
+
+      raw_score (residual technical risk)
+        -- what the code objectively still exposes. Includes accepted_risk
+        findings (the risk is real, you've just chosen to tolerate it --
+        this number must never look like the code got safer just because
+        someone accepted the risk). EXCLUDES false_positive and remediated
+        findings, because those are claims the finding is wrong or already
+        fixed, not risk-tolerance decisions -- they should never count
+        against the score at all once confirmed.
+
+      governed_score (post-review risk)
+        -- what a CISO/auditor should actually act on. Excludes
+        accepted_risk, false_positive, AND remediated -- only genuinely
+        open, unreviewed findings count.
+
+    The `raw_score` parameter (the scanner's own pre-review risk_score()) is
+    accepted for backward compatibility but is NOT used for the returned
+    raw_score -- both scores are now computed fresh from the same severity
+    weighting so they're always on a consistent, comparable scale and false
+    positives/remediated findings are guaranteed to move the number.
+    """
+    residual_findings = [f for f in findings if f.get("status", "open") not in _REMOVED_FROM_EVERY_SCORE]
+    residual_raw = sum(_SEVERITY_WEIGHT.get(f.get("severity", "INFO"), 0) for f in residual_findings)
+    residual_score = min(100, residual_raw)
+
+    open_findings = [
+        f for f in findings
+        if f.get("status", "open") not in _REMOVED_FROM_EVERY_SCORE
+        and f.get("status", "open") not in _EXCLUDED_FROM_GOVERNED_ONLY
+    ]
+    governed_raw = sum(_SEVERITY_WEIGHT.get(f.get("severity", "INFO"), 0) for f in open_findings)
     governed_score = min(100, governed_raw)
 
-    excluded_count = len([f for f in findings if f.get("status", "open") in _EXCLUDED_FROM_GOVERNED_SCORE])
+    removed_count = len([f for f in findings if f.get("status", "open") in _REMOVED_FROM_EVERY_SCORE])
+    accepted_count = len([f for f in findings if f.get("status", "open") in _EXCLUDED_FROM_GOVERNED_ONLY])
+    needs_reverify = [f.get("id") for f in findings if f.get("status", "open") == "remediated"]
 
     return {
-        "raw_score": raw_score,
+        "raw_score": residual_score,
         "governed_score": governed_score,
-        "findings_excluded_from_governed": excluded_count,
+        "findings_excluded_from_governed": accepted_count + removed_count,
+        "findings_removed_as_fp_or_remediated": removed_count,
+        "findings_accepted_risk": accepted_count,
         "open_findings_count": len(open_findings),
+        "needs_reverification": needs_reverify,
     }
 
 

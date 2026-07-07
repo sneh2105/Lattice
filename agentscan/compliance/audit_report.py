@@ -196,16 +196,22 @@ def generate_audit_report(
     evidence_present = sum(1 for mapping in compliance_report.mappings for control in mapping.controls if control.evidence_status == "present")
     evidence_total = sum(len(mapping.controls) for mapping in compliance_report.mappings)
 
-    # Raw vs governed risk score: governed excludes findings marked
-    # accepted_risk / false_positive / remediated via the risk acceptance
-    # workflow. A board sign-off needs to see both -- raw is "what the code
-    # actually contains", governed is "what open risk remains after review".
+    # Residual technical risk vs governed (post-review) risk. Governed
+    # excludes accepted_risk/false_positive/remediated findings; residual
+    # additionally excludes only false_positive/remediated (a confirmed
+    # false positive or fix must be removed from EVERY score -- an accepted
+    # risk stays in residual, since the underlying risk objectively still
+    # exists in the code, you've just chosen to tolerate it). A board
+    # sign-off needs both numbers side by side so nobody misreads "we
+    # accepted some risk" as "the code got safer".
     from agentscan.risk_register import annotate_findings as _annotate_dicts, compute_governed_score as _compute_governed
     _finding_dicts = [{"id": f.id, "severity": f.severity.value} for f in (result.findings or [])]
     _annotate_dicts(_finding_dicts, result.target)
-    _governed = _compute_governed(_finding_dicts, risk_score)
+    _governed = _compute_governed(_finding_dicts)
+    residual_score = _governed["raw_score"]
     governed_score = _governed["governed_score"]
     reviewed_count = _governed["findings_excluded_from_governed"]
+    needs_reverify_count = len(_governed.get("needs_reverification", []))
 
     exec_data = [
         ["Compliance Score", "Compliance Posture", "Critical Findings", "Attack Paths", "Frameworks Assessed"],
@@ -242,11 +248,17 @@ def generate_audit_report(
     story.append(Spacer(1, 3*mm))
     if reviewed_count > 0:
         story.append(Paragraph(
-            f"<b>Risk Score:</b> {risk_score}/100 raw &nbsp;|&nbsp; "
-            f"<font color=\"#2d6a2d\"><b>{governed_score}/100 governed</b></font> "
-            f"({reviewed_count} finding(s) excluded after review -- see Risk Acceptance Register below)",
+            f"<b>Residual Technical Risk:</b> {residual_score}/100 &nbsp;|&nbsp; "
+            f"<font color=\"#2d6a2d\"><b>Governed Risk (post-review): {governed_score}/100</b></font> "
+            f"({reviewed_count} finding(s) reviewed and excluded -- see Risk Acceptance Register below)",
             S["body"],
         ))
+        if needs_reverify_count > 0:
+            story.append(Paragraph(
+                f"<font color=\"#1a4fa0\">{needs_reverify_count} finding(s) marked Remediated -- "
+                f"re-verify on the next scan before fully trusting this status.</font>",
+                S["small"],
+            ))
         story.append(Spacer(1, 2*mm))
     if evidence_total:
         story.append(Paragraph(
