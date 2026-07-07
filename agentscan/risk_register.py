@@ -2,14 +2,27 @@
 """
 Risk Acceptance Workflow
 =========================
-Lets a user formally accept a finding as a known, tolerated risk rather than
-having it re-appear as an open item on every subsequent scan. Accepted risks
-are persisted to disk (JSON file under the user's home directory) so they
-survive across scans and across dashboard sessions.
+Lets a user set a per-finding status other than the default "open":
+  - open           : normal, unreviewed finding (default -- most findings)
+  - accepted_risk  : reviewed, risk is tolerated with compensating controls
+  - false_positive : reviewed, determined not to be a real issue
+  - remediated     : the underlying issue was fixed but the scanner may
+                      still flag the pattern (e.g. pending a re-scan)
 
-This is deliberately NOT a database -- it's a single JSON file, readable and
-auditable by hand, which matters for a compliance-facing feature: someone
-reviewing "why was this risk accepted" should be able to open the file directly.
+Every non-open status requires a reason, a reviewer name, and supports an
+optional expiry date. All records persist to a single JSON file (not a
+database) so someone auditing "why was this marked accepted_risk" can open
+the file directly and read it.
+
+Reports can compute two risk scores from this:
+  - RAW score       : as if no status had ever been set (what a first-time
+                      scan would show)
+  - GOVERNED score  : with accepted_risk / false_positive findings excluded
+                      from the score (remediated findings stay excluded too,
+                      since they're no longer considered open risk)
+Both numbers matter for different audiences: raw is "what does the code
+actually contain", governed is "what open risk remains after review" --
+a board sign-off wants both, not just one.
 """
 from __future__ import annotations
 import json
@@ -17,6 +30,12 @@ import time
 from pathlib import Path
 
 _REGISTER_PATH = Path.home() / ".agentscan" / "risk_register.json"
+
+VALID_STATUSES = {"open", "accepted_risk", "false_positive", "remediated"}
+
+# Statuses that remove a finding from the GOVERNED risk score.
+# "open" and any unrecognized status count as still-open risk.
+_EXCLUDED_FROM_GOVERNED_SCORE = {"accepted_risk", "false_positive", "remediated"}
 
 
 def _load_register() -> dict:
@@ -37,27 +56,49 @@ def _key(target: str, finding_id: str) -> str:
     return target + "::" + finding_id
 
 
-def accept_risk(target: str, finding_id: str, finding_title: str,
-                reason: str, accepted_by: str, expires: str = "") -> dict:
-    """Record a finding as an accepted risk. Returns the record that was stored."""
+def set_finding_status(target: str, finding_id: str, finding_title: str,
+                       status: str, reason: str, reviewer: str,
+                       expires: str = "") -> dict:
+    """
+    Set a finding's status to one of VALID_STATUSES. Returns the stored record.
+    status="open" is equivalent to clearing any prior override.
+    """
+    if status not in VALID_STATUSES:
+        raise ValueError("status must be one of " + ", ".join(sorted(VALID_STATUSES)))
+
     register = _load_register()
+    key = _key(target, finding_id)
+
+    if status == "open":
+        if key in register:
+            del register[key]
+            _save_register(register)
+        return {"status": "open", "finding_id": finding_id, "target": target}
+
     record = {
         "target": target,
         "finding_id": finding_id,
         "finding_title": finding_title,
+        "status": status,
         "reason": reason,
-        "accepted_by": accepted_by or "Unknown",
-        "accepted_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "reviewer": reviewer or "Unknown",
+        "set_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "expires": expires or "",
-        "status": "accepted",
     }
-    register[_key(target, finding_id)] = record
+    register[key] = record
     _save_register(register)
     return record
 
 
+# Back-compat wrapper -- the original API before the 4-state model.
+def accept_risk(target: str, finding_id: str, finding_title: str,
+                reason: str, accepted_by: str, expires: str = "") -> dict:
+    return set_finding_status(target, finding_id, finding_title,
+                              "accepted_risk", reason, accepted_by, expires)
+
+
 def revoke_acceptance(target: str, finding_id: str) -> bool:
-    """Remove a risk acceptance record. Returns True if one existed."""
+    """Remove any status override, reverting a finding to 'open'. Returns True if one existed."""
     register = _load_register()
     key = _key(target, finding_id)
     if key in register:
@@ -67,45 +108,90 @@ def revoke_acceptance(target: str, finding_id: str) -> bool:
     return False
 
 
-def is_accepted(target: str, finding_id: str) -> dict | None:
-    """Return the acceptance record if this finding is currently accepted, else None."""
+def get_status(target: str, finding_id: str) -> dict | None:
+    """Return the status record if one exists and hasn't expired, else None (meaning 'open')."""
     register = _load_register()
     record = register.get(_key(target, finding_id))
     if not record:
         return None
-    # Check expiry
     expires = record.get("expires", "")
     if expires:
         try:
             if time.strftime("%Y-%m-%d") > expires:
-                return None  # expired -- treat as not accepted
+                return None  # expired -- treat as open again
         except Exception:
             pass
     return record
 
 
-def list_accepted_for_target(target: str) -> list[dict]:
-    """All currently-accepted risks for a given target."""
+# Back-compat alias
+def is_accepted(target: str, finding_id: str) -> dict | None:
+    record = get_status(target, finding_id)
+    if record and record.get("status") == "accepted_risk":
+        return record
+    return None
+
+
+def list_by_status(target: str, status: str | None = None) -> list[dict]:
+    """All currently-active status records for a target, optionally filtered by status."""
     register = _load_register()
     out = []
     for key, record in register.items():
-        if record.get("target") == target:
-            accepted = is_accepted(target, record.get("finding_id", ""))
-            if accepted:
-                out.append(accepted)
+        if record.get("target") != target:
+            continue
+        active = get_status(target, record.get("finding_id", ""))
+        if not active:
+            continue
+        if status is None or active.get("status") == status:
+            out.append(active)
     return out
+
+
+# Back-compat alias
+def list_accepted_for_target(target: str) -> list[dict]:
+    return list_by_status(target, "accepted_risk")
 
 
 def annotate_findings(findings: list, target: str) -> list:
     """
-    Attach risk_accepted metadata to each finding dict without removing it
-    from the list -- accepted risks stay visible but are clearly marked,
-    which is the right behavior for an audit trail (silently hiding an
-    accepted risk from a compliance report would be worse than showing it
-    with a clear "accepted" badge).
+    Attach status metadata to each finding dict without removing it from the
+    list -- non-open findings stay visible but clearly marked, which is the
+    right behavior for an audit trail (silently hiding a finding would be
+    worse than showing it with a clear status badge).
     """
     for f in findings:
-        record = is_accepted(target, f.get("id", ""))
-        f["risk_accepted"] = record is not None
-        f["risk_acceptance"] = record
+        record = get_status(target, f.get("id", ""))
+        status = record.get("status", "open") if record else "open"
+        f["status"] = status
+        f["status_record"] = record
+        # Back-compat field some UI code still reads
+        f["risk_accepted"] = status == "accepted_risk"
+        f["risk_acceptance"] = record if status == "accepted_risk" else None
     return findings
+
+
+def compute_governed_score(findings: list, raw_score: int) -> dict:
+    """
+    Compute both raw and governed risk scores for a set of already-annotated
+    findings (each finding dict must have a "status" and "severity" key, as
+    produced by annotate_findings + the normal serializer).
+
+    Governed score = risk contribution of only the findings still "open"
+    (i.e. status not in accepted_risk/false_positive/remediated). Uses the
+    same severity weighting the main scanner uses so the number is on a
+    comparable 0-100 scale, not a re-invented metric.
+    """
+    SEVERITY_WEIGHT = {"CRITICAL": 40, "HIGH": 25, "MEDIUM": 10, "LOW": 3, "INFO": 0}
+
+    open_findings = [f for f in findings if f.get("status", "open") not in _EXCLUDED_FROM_GOVERNED_SCORE]
+    governed_raw = sum(SEVERITY_WEIGHT.get(f.get("severity", "INFO"), 0) for f in open_findings)
+    governed_score = min(100, governed_raw)
+
+    excluded_count = len([f for f in findings if f.get("status", "open") in _EXCLUDED_FROM_GOVERNED_SCORE])
+
+    return {
+        "raw_score": raw_score,
+        "governed_score": governed_score,
+        "findings_excluded_from_governed": excluded_count,
+        "open_findings_count": len(open_findings),
+    }

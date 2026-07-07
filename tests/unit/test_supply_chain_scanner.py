@@ -80,3 +80,33 @@ def test_numpy_url_case_insensitive():
 
     assert _get_url(project_urls_lower, "Source", "source"), "lowercase 'source' not found"
     assert _get_url(project_urls_upper, "source", "Source"), "uppercase 'Source' not found"
+
+
+def test_cli_supply_manifest_batch_scans_all_dependencies(tmp_path):
+    """agentscan supply --manifest requirements.txt scans every dependency in one call."""
+    import subprocess, sys as _sys
+
+    req = tmp_path / "requirements.txt"
+    req.write_text("langchain==0.1.0\nnumpy>=1.24\nrequests\n")
+
+    r = subprocess.run(
+        [_sys.executable, "-m", "agentscan.cli", "supply", "--manifest", str(req)],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "3 dependencies found" in r.stdout
+    assert "langchain" in r.stdout
+    assert "numpy" in r.stdout
+    assert "requests" in r.stdout
+
+
+def test_cli_supply_manifest_rejects_unknown_file(tmp_path):
+    unknown = tmp_path / "something.txt"
+    unknown.write_text("not a real manifest")
+    import subprocess, sys as _sys
+    r = subprocess.run(
+        [_sys.executable, "-m", "agentscan.cli", "supply", "--manifest", str(unknown)],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert r.returncode == 2
+    assert "Unrecognized manifest" in r.stdout

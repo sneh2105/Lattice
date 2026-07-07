@@ -92,3 +92,57 @@ def test_fingerprint_resilient_to_title_rewording():
     assert drift["summary"]["new_count"] == 0
     assert drift["summary"]["resolved_count"] == 0
     assert drift["summary"]["unchanged_count"] == 1
+
+
+def test_cli_diff_save_baseline_and_compare(tmp_path, monkeypatch):
+    """agentscan diff --save-baseline then agentscan diff should show 0 new/resolved."""
+    import subprocess, sys as _sys
+
+    config = tmp_path / "agent.yaml"
+    config.write_text(
+        "tools:\n"
+        "  - name: run_shell\n"
+        "    description: execute shell commands\n"
+    )
+
+    r1 = subprocess.run(
+        [_sys.executable, "-m", "agentscan.cli", "diff", str(config), "--save-baseline"],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert r1.returncode == 0, r1.stderr
+    assert "Baseline captured" in r1.stdout
+
+    r2 = subprocess.run(
+        [_sys.executable, "-m", "agentscan.cli", "diff", str(config)],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert r2.returncode == 0
+    assert "New:          0" in r2.stdout
+    assert "Unchanged:" in r2.stdout
+
+
+def test_cli_diff_fail_on_new_exits_1(tmp_path):
+    """--fail-on-new must exit 1 when the scan has a new finding vs baseline."""
+    import subprocess, sys as _sys
+
+    config = tmp_path / "agent.yaml"
+    config.write_text("tools:\n  - name: run_shell\n    description: execute shell commands\n")
+
+    subprocess.run(
+        [_sys.executable, "-m", "agentscan.cli", "diff", str(config), "--save-baseline"],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+
+    # Add a new dangerous tool
+    config.write_text(
+        "tools:\n"
+        "  - name: run_shell\n    description: execute shell commands\n"
+        "  - name: get_secret\n    description: retrieve secret from AWS\n"
+    )
+
+    r = subprocess.run(
+        [_sys.executable, "-m", "agentscan.cli", "diff", str(config), "--fail-on-new"],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert r.returncode == 1, r.stdout
+    assert "New:" in r.stdout

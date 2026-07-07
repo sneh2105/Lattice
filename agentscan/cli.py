@@ -122,6 +122,131 @@ def _should_fail(result, fail_on):
     idx = order.index(Severity(fail_on.upper()))
     return any(order.index(f.severity) <= idx for f in result.reportable_findings if f.severity in order)
 
+def _run_diff_command(args) -> None:
+    """
+    agentscan diff <target> [--save-baseline] [--fail-on-new] [--fail-on-escalated]
+
+    Scans the target, then either saves the result as a new baseline or
+    compares it against the previously saved one. Exit codes for CI use:
+      0 = clean (no new/escalated findings, or --save-baseline succeeded)
+      1 = --fail-on-new and a new finding was found, or --fail-on-escalated
+          and a finding's severity increased
+      2 = scan or baseline error
+    """
+    import json as _json
+    from agentscan.ui_server import _build_merged_result, _serialize_result
+    from agentscan.drift import save_baseline, compute_drift
+
+    target = args.config
+    result = _build_merged_result(target)
+    if result.error:
+        print("Error: " + result.error, file=sys.stderr)
+        sys.exit(2)
+
+    findings = _serialize_result(result)["findings"]
+
+    if args.save_baseline:
+        snapshot = save_baseline(target, findings)
+        print("Baseline captured: " + snapshot["captured_at"] + " (" + str(len(findings)) + " findings)")
+        sys.exit(0)
+
+    drift = compute_drift(target, findings)
+    if not drift["has_baseline"]:
+        print("No baseline found for this target.")
+        print("Capture one first: agentscan diff " + target + " --save-baseline")
+        sys.exit(2)
+
+    if args.output == "json":
+        print(_json.dumps(drift, indent=2))
+    else:
+        s = drift["summary"]
+        print("")
+        print("  AgentScan Diff -- baseline captured " + drift["baseline_captured_at"])
+        print("")
+        print("  New:          " + str(s["new_count"]))
+        print("  Resolved:     " + str(s["resolved_count"]))
+        print("  Escalated:    " + str(s["escalated_count"]))
+        print("  De-escalated: " + str(s["de_escalated_count"]))
+        print("  Unchanged:    " + str(s["unchanged_count"]))
+        print("")
+        if drift["new"]:
+            print("  New findings:")
+            for f in drift["new"]:
+                print("    [" + f["severity"] + "] " + f["title"])
+            print("")
+        if drift["escalated"]:
+            print("  Escalated findings:")
+            for e in drift["escalated"]:
+                print("    " + e["finding"]["title"] + " (" + e["from"] + " -> " + e["to"] + ")")
+            print("")
+
+    if args.fail_on_new and drift["summary"]["new_count"] > 0:
+        sys.exit(1)
+    if args.fail_on_escalated and drift["summary"]["escalated_count"] > 0:
+        sys.exit(1)
+    sys.exit(0)
+
+
+def _run_supply_manifest(manifest_path: str, max_packages: int) -> None:
+    """
+    agentscan supply --manifest requirements.txt|package.json|pyproject.toml
+
+    Batch-scans every dependency listed in a manifest file. Reuses the same
+    parsing the dashboard's Supply Chain tab uses, so CLI and dashboard
+    results always agree.
+    """
+    from pathlib import Path
+    p = Path(manifest_path)
+    if not p.exists():
+        print("Error: File not found: " + manifest_path, file=sys.stderr)
+        sys.exit(2)
+
+    name = p.name.lower()
+    if name.startswith("requirements") and name.endswith(".txt"):
+        pkg_manager = "pypi"
+    elif name == "package.json":
+        pkg_manager = "npm"
+    elif name == "pyproject.toml":
+        pkg_manager = "pyproject"
+    else:
+        print("Error: Unrecognized manifest file: " + manifest_path)
+        print("Supported: requirements*.txt, package.json, pyproject.toml")
+        sys.exit(2)
+
+    content = p.read_text(encoding="utf-8", errors="ignore")
+
+    from agentscan.ui_server import _get_supply_chain
+    result = _get_supply_chain(content, pkg_manager, str(p))
+    packages = result.get("packages", [])[:max_packages]
+    total = result.get("total", len(packages))
+
+    print("")
+    print("  AgentScan Supply Chain -- " + manifest_path)
+    print("  " + str(total) + " dependencies found" +
+          (" (scanning first " + str(max_packages) + ")" if total > max_packages else ""))
+    print("")
+
+    label_w = 30
+    print("  " + "Package".ljust(label_w) + " Risk    Status")
+    print("  " + "-" * label_w + " ------- " + "-" * 30)
+
+    any_findings = False
+    for pkg in packages:
+        pname = (pkg.get("package_name") or pkg.get("target") or "")[:label_w]
+        if pkg.get("error"):
+            print("  " + pname.ljust(label_w) + " -       Could not scan: " + str(pkg["error"])[:60])
+            continue
+        score = pkg.get("risk_score", 0)
+        n_findings = len(pkg.get("findings", []))
+        if n_findings > 0:
+            any_findings = True
+        status = "Clean" if score == 0 else (str(n_findings) + " finding(s)")
+        print("  " + pname.ljust(label_w) + " " + str(score).rjust(3) + "/100 " + status)
+
+    print("")
+    sys.exit(1 if any_findings else 0)
+
+
 def main():
     # Friendly redirect for common wrong commands
     import sys as _sys
@@ -262,13 +387,25 @@ Not sure where to start? Run: agentscan doctor .
             "  agentscan supply pypi:langchain\n"
             "  agentscan supply npm:@langchain/core\n"
             "  agentscan supply hf:microsoft/phi-3\n"
-            "  agentscan supply dataset:openai/gsm8k"
+            "  agentscan supply dataset:openai/gsm8k\n\n"
+            "  # Batch-scan every dependency in a manifest file:\n"
+            "  agentscan supply --manifest requirements.txt\n"
+            "  agentscan supply --manifest package.json\n"
+            "  agentscan supply --manifest pyproject.toml"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_supply.add_argument(
-        "target",
+        "target", nargs="?", default=None,
         help="Package to scan. Format: pypi:name | npm:name | hf:org/model | dataset:org/name"
+    )
+    p_supply.add_argument(
+        "--manifest", metavar="FILE",
+        help="Batch-scan every dependency in a requirements.txt / package.json / pyproject.toml file"
+    )
+    p_supply.add_argument(
+        "--max-packages", type=int, default=20,
+        help="Cap on how many dependencies to scan from a manifest (default: 20, avoids long CI runs)"
     )
 
     # ── shared output flags (applied to all four scan commands) ────────
@@ -299,6 +436,28 @@ Not sure where to start? Run: agentscan doctor .
 
     sub.add_parser("demo", help="Run AgentScan against bundled vulnerable agents -- zero setup, no code of your own needed")
     sub.add_parser("benchmark", help="Run the evaluation kit and report pass/fail against documented thresholds")
+
+    diff_p = sub.add_parser(
+        "diff", help="Compare a scan against a saved baseline -- new/resolved/escalated findings",
+        description=(
+            "Fingerprint-based drift detection between two scans of the same target.\n"
+            "Findings are matched by id + tags, not exact wording, so re-phrasing a\n"
+            "finding's description doesn't make it look like a new issue.\n\n"
+            "Examples:\n"
+            "  agentscan diff ./agent.yaml --save-baseline      # capture current scan as baseline\n"
+            "  agentscan diff ./agent.yaml                      # compare against saved baseline\n"
+            "  agentscan diff ./agent.yaml --fail-on-new         # exit 1 if any NEW finding (for CI)"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    diff_p.add_argument("config", help="Path to the agent config, source file, or directory to scan")
+    diff_p.add_argument("--save-baseline", action="store_true",
+                        help="Capture the current scan as the new baseline instead of comparing")
+    diff_p.add_argument("--fail-on-new", action="store_true",
+                        help="Exit 1 if any new finding appears compared to the baseline (for CI/CD gates)")
+    diff_p.add_argument("--fail-on-escalated", action="store_true",
+                        help="Exit 1 if any finding's severity increased compared to the baseline")
+    diff_p.add_argument("--output", choices=["text", "json"], default="text")
 
     ui_p = sub.add_parser("ui", help="Open the AgentScan web dashboard in your browser")
     ui_p.add_argument("--port", type=int, default=0, help="Port to run on (default: random free port)")
@@ -332,6 +491,10 @@ Not sure where to start? Run: agentscan doctor .
 
     if args.command == "benchmark":
         sys.exit(run_benchmark())
+
+    if args.command == "diff":
+        _run_diff_command(args)
+        return
 
     if args.command == "ui":
         from agentscan.ui_server import run_ui
@@ -383,7 +546,18 @@ Not sure where to start? Run: agentscan doctor .
         result = scan_mcp(target, timeout=getattr(args,"timeout",10))
 
     elif args.command == "supply":
+        manifest = getattr(args, "manifest", None)
+        if manifest:
+            _run_supply_manifest(manifest, getattr(args, "max_packages", 20))
+            return
+
         target = args.target
+        if not target:
+            print("\n  Error: Provide a package (pypi:name) or --manifest FILE")
+            print("  Examples:")
+            print("    agentscan supply pypi:langchain")
+            print("    agentscan supply --manifest requirements.txt")
+            sys.exit(2)
         if not any(target.startswith(x) for x in ("pypi:","npm:","hf:","dataset:")):
             print("\n  Error: Supply chain target must start with pypi:, npm:, hf:, or dataset:")
             print("  Examples:")
@@ -391,6 +565,7 @@ Not sure where to start? Run: agentscan doctor .
             print("    agentscan supply npm:@langchain/core")
             print("    agentscan supply hf:microsoft/phi-3")
             print("    agentscan supply dataset:openai/gsm8k")
+            print("    agentscan supply --manifest requirements.txt")
             sys.exit(2)
         result = scan_supply_chain(target)
 

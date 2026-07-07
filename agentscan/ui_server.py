@@ -182,8 +182,12 @@ def _scan_target(target: str) -> dict:
         out = _scan_file(p)
 
     if "findings" in out:
-        from agentscan.risk_register import annotate_findings
+        from agentscan.risk_register import annotate_findings, compute_governed_score
         out["findings"] = annotate_findings(out["findings"], target)
+        scores = compute_governed_score(out["findings"], out.get("risk_score", 0))
+        out["raw_score"] = scores["raw_score"]
+        out["governed_score"] = scores["governed_score"]
+        out["findings_excluded_from_governed"] = scores["findings_excluded_from_governed"]
     return out
 
 
@@ -695,6 +699,31 @@ def create_app(version: str = "0.2.8") -> "Flask":
             return jsonify({"error": "target required"}), 400
         return jsonify(compute_drift(target, findings))
 
+    @app.route("/api/risk/set_status", methods=["POST"])
+    def api_risk_set_status():
+        """Set a finding to open / accepted_risk / false_positive / remediated."""
+        from agentscan.risk_register import set_finding_status, VALID_STATUSES
+        data = request.get_json(force=True) or {}
+        target = (data.get("target") or "").strip()
+        finding_id = (data.get("finding_id") or "").strip()
+        status = (data.get("status") or "").strip()
+        if not target or not finding_id:
+            return jsonify({"error": "target and finding_id required"}), 400
+        if status not in VALID_STATUSES:
+            return jsonify({"error": "status must be one of " + ", ".join(sorted(VALID_STATUSES))}), 400
+        try:
+            record = set_finding_status(
+                target=target, finding_id=finding_id,
+                finding_title=data.get("finding_title", ""),
+                status=status,
+                reason=data.get("reason", ""),
+                reviewer=data.get("reviewer", ""),
+                expires=data.get("expires", ""),
+            )
+            return jsonify({"record": record})
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
     @app.route("/api/risk/accept", methods=["POST"])
     def api_risk_accept():
         from agentscan.risk_register import accept_risk
@@ -723,10 +752,11 @@ def create_app(version: str = "0.2.8") -> "Flask":
 
     @app.route("/api/risk/list", methods=["POST"])
     def api_risk_list():
-        from agentscan.risk_register import list_accepted_for_target
+        from agentscan.risk_register import list_by_status
         data = request.get_json(force=True) or {}
         target = (data.get("target") or "").strip()
-        return jsonify({"accepted": list_accepted_for_target(target)})
+        status = data.get("status")  # optional filter
+        return jsonify({"records": list_by_status(target, status)})
 
     @app.route("/api/doctor", methods=["POST"])
     def api_doctor():

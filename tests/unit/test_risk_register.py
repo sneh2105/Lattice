@@ -26,8 +26,8 @@ def test_accept_risk_persists():
         finding_title="Test finding", reason="Reviewed by security team",
         accepted_by="Sneh",
     )
-    assert record["status"] == "accepted"
-    assert record["accepted_by"] == "Sneh"
+    assert record["status"] == "accepted_risk"
+    assert record["reviewer"] == "Sneh"
 
     found = is_accepted("examples/agent.yaml", "AGT-001")
     assert found is not None
@@ -92,3 +92,61 @@ def test_risk_acceptance_does_not_remove_finding_from_list():
     result = annotate_findings(findings, "t.yaml")
     assert len(result) == 1
     assert result[0]["risk_accepted"] is True
+
+
+def test_four_states_supported():
+    from agentscan.risk_register import set_finding_status, VALID_STATUSES
+    assert VALID_STATUSES == {"open", "accepted_risk", "false_positive", "remediated"}
+    for status in ("accepted_risk", "false_positive", "remediated"):
+        record = set_finding_status(
+            target="t.yaml", finding_id="F-" + status, finding_title="X",
+            status=status, reason="test", reviewer="QA",
+        )
+        assert record["status"] == status
+
+
+def test_invalid_status_rejected():
+    from agentscan.risk_register import set_finding_status
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        set_finding_status(target="t.yaml", finding_id="F1", finding_title="X",
+                           status="not_a_real_status", reason="x", reviewer="y")
+
+
+def test_governed_score_excludes_non_open_findings():
+    from agentscan.risk_register import set_finding_status, annotate_findings, compute_governed_score
+
+    set_finding_status(target="t.yaml", finding_id="F1", finding_title="Critical issue",
+                       status="accepted_risk", reason="compensating control in place", reviewer="QA")
+
+    findings = [
+        {"id": "F1", "severity": "CRITICAL", "title": "Critical issue"},
+        {"id": "F2", "severity": "HIGH", "title": "Still open issue"},
+    ]
+    annotate_findings(findings, "t.yaml")
+    scores = compute_governed_score(findings, raw_score=65)
+
+    assert scores["raw_score"] == 65
+    # Only F2 (HIGH, still open) should count toward governed score
+    assert scores["governed_score"] < scores["raw_score"]
+    assert scores["findings_excluded_from_governed"] == 1
+
+
+def test_remediated_and_false_positive_also_excluded_from_governed_score():
+    from agentscan.risk_register import set_finding_status, annotate_findings, compute_governed_score
+
+    set_finding_status(target="t2.yaml", finding_id="F1", finding_title="X",
+                       status="false_positive", reason="not exploitable", reviewer="QA")
+    set_finding_status(target="t2.yaml", finding_id="F2", finding_title="Y",
+                       status="remediated", reason="patched in v2", reviewer="QA")
+
+    findings = [
+        {"id": "F1", "severity": "CRITICAL", "title": "X"},
+        {"id": "F2", "severity": "CRITICAL", "title": "Y"},
+        {"id": "F3", "severity": "LOW", "title": "Z"},
+    ]
+    annotate_findings(findings, "t2.yaml")
+    scores = compute_governed_score(findings, raw_score=90)
+
+    assert scores["findings_excluded_from_governed"] == 2
+    assert scores["open_findings_count"] == 1

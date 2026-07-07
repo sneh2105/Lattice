@@ -447,7 +447,16 @@ function renderResults(d, target) {
   // SUMMARY
   h+='<div id="t-summary">';
   h+='<div class="metrics">';
-  h+='<div class="metric"><div class="mlbl">Risk Score</div><div class="mval" style="color:'+rc(score)+'">'+score+'<span style="font-size:13px;color:var(--muted)">/100</span></div><div class="msub">'+rl(score)+'</div><div class="rbar"><div class="rfill" id="rfill" style="width:0%;background:'+rc(score)+'"></div></div></div>';
+  var governedScore = (d.governed_score !== undefined) ? d.governed_score : score;
+  var excludedCount = d.findings_excluded_from_governed || 0;
+  h+='<div class="metric"><div class="mlbl">Risk Score</div><div class="mval" style="color:'+rc(score)+'">'+score+'<span style="font-size:13px;color:var(--muted)">/100</span></div>';
+  if(excludedCount > 0){
+    h+='<div class="msub">Raw score (all findings)</div>';
+    h+='<div style="font-size:11px;color:var(--green);margin-top:4px">Governed: '+governedScore+'/100 ('+excludedCount+' reviewed)</div>';
+  } else {
+    h+='<div class="msub">'+rl(score)+'</div>';
+  }
+  h+='<div class="rbar"><div class="rfill" id="rfill" style="width:0%;background:'+rc(score)+'"></div></div></div>';
   h+='<div class="metric"><div class="mlbl">Critical</div><div class="mval" style="color:var(--red)">'+cnt.CRITICAL+'</div><div class="msub">'+cnt.HIGH+' high</div></div>';
   h+='<div class="metric"><div class="mlbl">Attack Paths</div><div class="mval" style="color:'+(paths.length?'var(--red)':'var(--green)')+'">'+paths.length+'</div><div class="msub">complete chains</div></div>';
   h+='<div class="metric"><div class="mlbl">Findings</div><div class="mval">'+rep.length+'</div><div class="msub">'+cnt.MEDIUM+' med  '+cnt.LOW+' low</div></div>';
@@ -482,21 +491,35 @@ function renderResults(d, target) {
     ['CRITICAL','HIGH','MEDIUM','LOW'].forEach(function(s){if(cnt[s])h+='<button class="fchip" onclick="filterF(this,\''+s+'\')">'+s+' ('+cnt[s]+')</button>';});
     h+='</div><div id="flist">';
     rep.forEach(function(f,i){
-      var acceptedBadge = f.risk_accepted ? '<span class="fw-chip" style="background:rgba(63,185,80,.12);color:var(--green);border-color:rgba(63,185,80,.3)">Risk Accepted</span>' : '';
+      var fstatus = f.status || 'open';
+      var statusBadges = {
+        accepted_risk: '<span class="fw-chip" style="background:rgba(63,185,80,.12);color:var(--green);border-color:rgba(63,185,80,.3)">Accepted Risk</span>',
+        false_positive: '<span class="fw-chip" style="background:rgba(88,166,255,.12);color:var(--accent);border-color:rgba(88,166,255,.3)">False Positive</span>',
+        remediated: '<span class="fw-chip" style="background:rgba(188,140,255,.12);color:var(--purple);border-color:rgba(188,140,255,.3)">Remediated</span>',
+      };
+      var statusBadge = statusBadges[fstatus] || '';
       h+='<div class="fcard" data-sev="'+f.severity+'" id="fc'+i+'"><div class="fhead" onclick="toggleF('+i+')">';
-      h+='<span class="schip sc-'+f.severity+'">'+f.severity+'</span><span class="ftitle">'+esc(f.title)+'</span>'+acceptedBadge+'<span class="chev">&#9654;</span></div>';
+      h+='<span class="schip sc-'+f.severity+'">'+f.severity+'</span><span class="ftitle">'+esc(f.title)+'</span>'+statusBadge+'<span class="chev">&#9654;</span></div>';
       h+='<div class="fbody">';
       if(f.explanation)h+='<div class="fslbl">What is happening</div><div class="fstxt">'+esc(f.explanation)+'</div>';
       if(f.impact)h+='<div class="fslbl">Impact</div><div class="fstxt">'+esc(f.impact)+'</div>';
       if(f.remediation)h+='<div class="ffix"><strong>Fix:</strong> '+esc(f.remediation)+'</div>';
       if(f.evidence&&f.evidence.length)h+='<div class="fevid">'+f.evidence.map(function(e){return esc(e.source+': '+e.observed_value);}).join('<br>')+'</div>';
       if(f.mitre_atlas&&f.mitre_atlas.length)h+='<div class="mtags">'+f.mitre_atlas.map(function(m){return '<span class="mtag">'+m+'</span>';}).join('')+'</div>';
-      if(f.risk_accepted&&f.risk_acceptance){
-        h+='<div class="fevid" style="color:var(--green);border:1px solid rgba(63,185,80,.2)">Accepted by '+esc(f.risk_acceptance.accepted_by)+' on '+esc(f.risk_acceptance.accepted_at)+'<br>Reason: '+esc(f.risk_acceptance.reason)+'</div>';
-        h+='<button class="btn-sm" onclick="revokeRisk(\''+esc(f.id)+'\')" style="margin-top:8px">Revoke acceptance</button>';
-      } else {
-        h+='<button class="btn-sm" onclick="acceptRisk(\''+esc(f.id)+'\',\''+esc(f.title).replace(/\'/g,"")+'\')" style="margin-top:8px">Accept this risk</button>';
+      if(fstatus!=='open'&&f.status_record){
+        h+='<div class="fevid" style="color:var(--green);border:1px solid rgba(63,185,80,.2)">'
+          +esc(fstatus)+' by '+esc(f.status_record.reviewer)+' on '+esc(f.status_record.set_at)
+          +(f.status_record.expires?' (expires '+esc(f.status_record.expires)+')':'')
+          +'<br>Reason: '+esc(f.status_record.reason)+'</div>';
       }
+      h+='<div class="fslbl" style="margin-top:9px">Set status</div>';
+      h+='<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px">';
+      ['open','accepted_risk','false_positive','remediated'].forEach(function(s){
+        var active = fstatus===s ? 'active' : '';
+        var labels = {open:'Open', accepted_risk:'Accept Risk', false_positive:'False Positive', remediated:'Remediated'};
+        h+='<button class="fchip '+active+'" onclick="setFindingStatus(\''+esc(f.id)+'\',\''+esc(f.title).replace(/\'/g,"")+'\',\''+s+'\')">'+labels[s]+'</button>';
+      });
+      h+='</div>';
       h+='</div></div>';
     });
     h+='</div>';
@@ -731,7 +754,20 @@ function renderSupply(pkgs){
   if(!pkgs.length){$('supply-results').innerHTML='<div class="hint">No packages found</div>';return;}
   $('supply-results').innerHTML=pkgs.map(function(p){
     var sc=p.risk_score||0;
-    return '<div class="pkg-result"><div class="pkg-name">'+esc(p.package_name||p.target||'')+'</div>'+(p.error?'<div style="font-size:11px;color:var(--muted)">'+esc(p.error)+'</div>':'<div class="pkg-score" style="color:'+rc(sc)+'">'+sc+'/100</div>')+'</div>';
+    var findingsCount=(p.findings||[]).length;
+    if(p.error){
+      return '<div class="pkg-result"><div class="pkg-name">'+esc(p.package_name||p.target||'')+'</div>'
+        +'<div style="font-size:11px;color:var(--muted)">Could not scan: '+esc(p.error)+'</div></div>';
+    }
+    var isClean = sc===0 && findingsCount===0;
+    var statusLabel = isClean ? 'Clean -- no risk findings' : findingsCount+' finding'+(findingsCount===1?'':'s');
+    var statusIcon = isClean ? '&#9989;' : '&#9888;';
+    return '<div class="pkg-result">'
+      +'<div class="pkg-name">'+esc(p.package_name||p.target||'')+'</div>'
+      +'<div style="text-align:right">'
+      +'<div class="pkg-score" style="color:'+rc(sc)+'">'+statusIcon+' Risk '+sc+'/100</div>'
+      +'<div style="font-size:10px;color:var(--muted)">'+statusLabel+'</div>'
+      +'</div></div>';
   }).join('');
 }
 
@@ -752,29 +788,30 @@ async function loadHealth(target){
 // ── Findings interactions ──────────────────────────────────────────
 function toggleF(i){$('fc'+i).classList.toggle('open');}
 
-async function acceptRisk(findingId, findingTitle){
-  var reason = prompt('Reason for accepting this risk (required for audit trail):');
+async function setFindingStatus(findingId, findingTitle, status){
+  if(status==='open'){
+    try{
+      await fetch('/api/risk/set_status', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({target: curTarget, finding_id: findingId, finding_title: findingTitle, status: 'open', reason:'', reviewer:''})});
+      alert('Reverted to open. Re-scan to see the updated status.');
+    }catch(e){ alert('Failed: ' + e.message); }
+    return;
+  }
+  var labels = {accepted_risk:'accepting this risk', false_positive:'marking as false positive', remediated:'marking as remediated'};
+  var reason = prompt('Reason for ' + (labels[status]||status) + ' (required for audit trail):');
   if(!reason)return;
-  var acceptedBy = prompt('Your name (for the audit trail):') || 'Unknown';
+  var reviewer = prompt('Your name (for the audit trail):') || 'Unknown';
+  var expires = prompt('Expiry date YYYY-MM-DD (optional, leave blank for no expiry):') || '';
   try{
-    var r = await fetch('/api/risk/accept', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({target: curTarget, finding_id: findingId, finding_title: findingTitle, reason: reason, accepted_by: acceptedBy})});
+    var r = await fetch('/api/risk/set_status', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({target: curTarget, finding_id: findingId, finding_title: findingTitle,
+                            status: status, reason: reason, reviewer: reviewer, expires: expires})});
     var d = await r.json();
-    if(d.record){ alert('Risk accepted. Re-scan to see the updated status.'); }
-  }catch(e){ alert('Failed to accept risk: ' + e.message); }
+    if(d.record){ alert('Status set to "' + status + '". Re-scan to see the updated status and governed score.'); }
+    else if(d.error){ alert('Failed: ' + d.error); }
+  }catch(e){ alert('Failed to set status: ' + e.message); }
 }
-window.acceptRisk = acceptRisk;
-
-async function revokeRisk(findingId){
-  if(!confirm('Revoke this risk acceptance? It will reappear as an open finding.'))return;
-  try{
-    var r = await fetch('/api/risk/revoke', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({target: curTarget, finding_id: findingId})});
-    var d = await r.json();
-    if(d.revoked){ alert('Risk acceptance revoked. Re-scan to see the updated status.'); }
-  }catch(e){ alert('Failed to revoke: ' + e.message); }
-}
-window.revokeRisk = revokeRisk;
+window.setFindingStatus = setFindingStatus;
 
 async function captureBaseline(){
   if(!curResult||!curTarget){alert('Run a scan first');return;}
