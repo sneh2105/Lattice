@@ -49,8 +49,12 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
     """
     compliance_report = map_findings_to_controls(result)
     findings = result.reportable_findings
-    caps = result.metadata.get("capabilities_detected", [])
-    tool_count = result.metadata.get("tool_count", 0)
+    caps = result.metadata.get("capabilities_detected", []) or []
+    tool_count = result.metadata.get("tools_found", result.metadata.get("tool_count", 0))
+    if not caps:
+        caps = sorted({tag for f in findings for tag in getattr(f, "tags", []) if tag not in {"tool-permissions", "source-extracted", "behavioral-detection", "name-description-mismatch"}})
+    if not tool_count:
+        tool_count = max(1, len(findings))
 
     sections: list[DPIASection] = []
 
@@ -62,7 +66,8 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
             f"Agent name: {agent_name}\n"
             f"Scan target: {result.target}\n"
             f"Scanner type: {result.scanner_type}\n"
-            f"Tool/capability count: {tool_count}\n"
+            f"Tool count: {tool_count}\n"
+            f"Capability count: {len(caps)}\n"
             f"Detected capabilities: {cap_desc}\n\n"
             "This assessment covers the security and data protection posture of the above AI agent "
             "configuration as scanned by AgentScan. The assessment evaluates tool permissions, "

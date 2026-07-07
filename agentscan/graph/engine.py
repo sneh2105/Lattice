@@ -295,6 +295,28 @@ class AttackGraph:
 
     # -- Serialisation --------------------------------------------------------
 
+    def prune_disconnected_nodes(self) -> None:
+        """Remove nodes that are not reachable from an attacker-controlled entry point or a crown jewel."""
+        reachable_ids = set()
+        for entry_id in [nid for nid, n in self.nodes.items() if n.attacker_controlled]:
+            reachable_ids.update(self.reachable_from(entry_id))
+
+        removed_ids = set()
+        for node_id in list(self.nodes):
+            if node_id in reachable_ids:
+                continue
+            if node_id in ATTACKER_ENTRY_NODES or node_id in CROWN_JEWEL_NODES:
+                continue
+            self.nodes.pop(node_id, None)
+            removed_ids.add(node_id)
+
+        self.edges = [e for e in self.edges if e.src not in removed_ids and e.dst not in removed_ids]
+        self._adj = defaultdict(list)
+        self._radj = defaultdict(list)
+        for edge in self.edges:
+            self._adj[edge.src].append(edge)
+            self._radj[edge.dst].append(edge)
+
     def to_dict(self) -> dict:
         return {
             "nodes": [
@@ -389,7 +411,7 @@ def build_graph_from_scan(result: ScanResult) -> AttackGraph:
     # Add the agent/server as a node
     agent_node = Node(
         id="agent",
-        type=NodeType.AGENT if scanner == "agent_scanner" else NodeType.MCP_SERVER,
+        type=NodeType.AGENT if scanner in {"agent_scanner", "source_scanner"} else NodeType.MCP_SERVER,
         label=result.metadata.get("agent_name", result.target.split("/")[-1]),
         trust_boundary=True,
         properties={
@@ -410,12 +432,20 @@ def build_graph_from_scan(result: ScanResult) -> AttackGraph:
     ))
 
     # Map capabilities to graph edges
+    if "code_execution" in caps:
+        g.add_node(Node(
+            id="code_runtime",
+            type=NodeType.PROCESS,
+            label="Code Interpreter / Eval Runtime",
+            properties={"impact": "Arbitrary code execution and eval-based runtime abuse"},
+        ))
+
     cap_edge_map: dict[str, list[tuple]] = {
         "shell_exec": [
             ("agent", "shell_process", EdgeType.EXECUTES, 1.0, ["AML.T0017"]),
         ],
         "code_execution": [
-            ("agent", "shell_process", EdgeType.EXECUTES, 1.0, ["AML.T0017"]),
+            ("agent", "code_runtime", EdgeType.EXECUTES, 1.0, ["AML.T0017"]),
         ],
         "secret_access": [
             ("agent", "aws_credentials", EdgeType.READS, 1.0, ["AML.T0051"]),
@@ -525,6 +555,7 @@ def build_graph_from_scan(result: ScanResult) -> AttackGraph:
             mitre=["AML.T0048"],
         ))
 
+    g.prune_disconnected_nodes()
     return g
 
 

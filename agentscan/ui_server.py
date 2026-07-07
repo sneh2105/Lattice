@@ -65,6 +65,10 @@ def _serialize_compliance(report) -> dict:
                 "obligation": c.get("obligation", "") if isinstance(c, dict) else getattr(c, "obligation", ""),
                 "how_finding_maps": c.get("how_finding_maps", "") if isinstance(c, dict) else getattr(c, "how_finding_maps", ""),
                 "severity": c.get("severity", "") if isinstance(c, dict) else getattr(c, "severity", ""),
+                "requirement_level": c.get("requirement_level", "") if isinstance(c, dict) else getattr(c, "requirement_level", ""),
+                "owner": c.get("owner", "") if isinstance(c, dict) else getattr(c, "owner", ""),
+                "deadline": c.get("deadline", "") if isinstance(c, dict) else getattr(c, "deadline", ""),
+                "evidence_status": c.get("evidence_status", "") if isinstance(c, dict) else getattr(c, "evidence_status", ""),
             })
         md = m if isinstance(m, dict) else vars(m)
         mappings.append({
@@ -173,10 +177,14 @@ def _scan_target(target: str) -> dict:
 
     # Directory: scan source + auto-discover MCP manifests
     if p.is_dir():
-        return _scan_directory(str(p))
+        out = _scan_directory(str(p))
+    else:
+        out = _scan_file(p)
 
-    # Single file
-    return _scan_file(p)
+    if "findings" in out:
+        from agentscan.risk_register import annotate_findings
+        out["findings"] = annotate_findings(out["findings"], target)
+    return out
 
 
 def _find_dependency_files(dirpath: str) -> dict:
@@ -186,65 +194,67 @@ def _find_dependency_files(dirpath: str) -> dict:
     """
     p = Path(dirpath)
     result = {}
-    
-    for req_file in ["requirements.txt", "requirements-dev.txt", "requirements/base.txt"]:
-        f = p / req_file
-        if f.exists():
-            result["requirements"] = {"path": str(f), "content": f.read_text(encoding="utf-8", errors="ignore")}
-            break
-    
-    pkg_json = p / "package.json"
-    if pkg_json.exists():
-        result["package_json"] = {"path": str(pkg_json), "content": pkg_json.read_text(encoding="utf-8", errors="ignore")}
-    
-    pyproject = p / "pyproject.toml"
-    if pyproject.exists():
-        content = pyproject.read_text(encoding="utf-8", errors="ignore")
-        # Extract dependencies from pyproject.toml
-        result["pyproject"] = {"path": str(pyproject), "content": content}
-    
+
+    skip = {"venv", ".venv", "node_modules", "__pycache__", ".git", "site-packages"}
+
+    def _safe_read(f: Path) -> str:
+        return f.read_text(encoding="utf-8", errors="ignore")
+
+    req_candidates = [
+        f for f in p.rglob("requirements*.txt")
+        if not any(part in skip for part in f.parts) and f.stat().st_size < 500_000
+    ]
+    if req_candidates:
+        f = sorted(req_candidates, key=lambda x: (len(x.parts), str(x)))[0]
+        result["requirements"] = {"path": str(f), "content": _safe_read(f)}
+
+    pkg_candidates = [
+        f for f in p.rglob("package.json")
+        if not any(part in skip for part in f.parts) and f.stat().st_size < 500_000
+    ]
+    if pkg_candidates:
+        f = sorted(pkg_candidates, key=lambda x: (len(x.parts), str(x)))[0]
+        result["package_json"] = {"path": str(f), "content": _safe_read(f)}
+
+    pyproject_candidates = [
+        f for f in p.rglob("pyproject.toml")
+        if not any(part in skip for part in f.parts) and f.stat().st_size < 500_000
+    ]
+    if pyproject_candidates:
+        f = sorted(pyproject_candidates, key=lambda x: (len(x.parts), str(x)))[0]
+        result["pyproject"] = {"path": str(f), "content": _safe_read(f)}
+
     return result
 
 
 def _scan_directory(dirpath: str) -> dict:
-    """Scan a directory: source scan + auto-discover MCP manifests + dependency files."""
-    from agentscan.scanners.source_scanner import scan_source
-    from agentscan.scanners.mcp_scanner import scan_mcp
-
-    p = Path(dirpath)
-    result = scan_source(dirpath)
+    """
+    Scan a directory using the canonical merge -- same function that feeds
+    Compliance, PDF, SARIF, and Attack Graph. This is what keeps every tab
+    reporting identical numbers.
+    """
+    result = _merge_directory_result(dirpath)
     base = _serialize_result(result)
-    base["type"] = "source"
-
-    # Auto-discover MCP manifests and merge
-    mcp_candidates = [
-        f for f in p.rglob("*.json")
-        if any(kw in f.name.lower() for kw in ("mcp", "server", "manifest", "tools"))
-        and f.stat().st_size < 500_000
-    ]
-    for mcp_file in mcp_candidates[:3]:
-        try:
-            text = mcp_file.read_text(encoding="utf-8", errors="ignore")
-            data = json.loads(text)
-            if isinstance(data, dict) and "tools" in data:
-                mcp_result = scan_mcp(str(mcp_file))
-                if not mcp_result.error:
-                    mcp_dict = _serialize_result(mcp_result)
-                    base["findings"] = base["findings"] + mcp_dict["findings"]
-                    base["attack_paths"] = base["attack_paths"] + mcp_dict["attack_paths"]
-                    base["risk_score"] = max(base.get("risk_score", 0), mcp_dict.get("risk_score", 0))
-                    base["mcp_manifests_found"] = base.get("mcp_manifests_found", []) + [str(mcp_file)]
-        except Exception:
-            pass
-
-    # Auto-discover dependency manifests for Supply Chain tab
-    base["dependency_files"] = _find_dependency_files(dirpath)
-
+    base["type"] = "merged"
+    base["mcp_manifests_found"] = result.metadata.get("mcp_manifests_found", [])
+    base["dependency_files"] = result.metadata.get("dependency_files", {})
+    base["source_root"] = dirpath
     return base
 
 
 def _scan_file(p: Path) -> dict:
     ext = p.suffix.lower()
+    name = p.name.lower()
+
+    if name.startswith("requirements") and ext == ".txt":
+        return {**_get_supply_chain(p.read_text(encoding="utf-8", errors="ignore"), "pypi", str(p)), "type": "supply"}
+
+    if name == "package.json":
+        return {**_get_supply_chain(p.read_text(encoding="utf-8", errors="ignore"), "npm", str(p)), "type": "supply"}
+
+    if name == "pyproject.toml":
+        return {**_get_supply_chain(p.read_text(encoding="utf-8", errors="ignore"), "pyproject", str(p)), "type": "supply"}
+
     if ext == ".py":
         from agentscan.scanners.source_scanner import scan_source
         return {**_serialize_result(scan_source(str(p))), "type": "source"}
@@ -268,7 +278,7 @@ def _scan_file(p: Path) -> dict:
     return {"error": "Unsupported file type: " + p.suffix + ". Supported: .py .yaml .yml .json", "type": "unknown"}
 
 
-def _clone_and_scan(github_url: str) -> dict:
+def _clone_github_repo(github_url: str) -> str:
     url = github_url.strip()
     if not url.startswith("http"):
         url = "https://" + url
@@ -286,29 +296,173 @@ def _clone_and_scan(github_url: str) -> dict:
         r = subprocess.run(["git", "clone", "--depth", "1", "--quiet", url, tmp],
                            capture_output=True, text=True, timeout=120)
         if r.returncode != 0:
-            return {"error": "Could not clone: " + (r.stderr.strip() or "git clone failed"), "type": "unknown"}
+            raise RuntimeError("Could not clone: " + (r.stderr.strip() or "git clone failed"))
         scan_path = str(Path(tmp) / subdir) if subdir else tmp
         if not Path(scan_path).exists():
-            return {"error": "Subdirectory not found in repo: " + (subdir or ""), "type": "unknown"}
+            raise FileNotFoundError("Subdirectory not found in repo: " + (subdir or ""))
+        return scan_path
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("Clone timed out (120s). Try a smaller repo or a specific subdirectory.") from e
+
+
+def _clone_and_scan(github_url: str) -> dict:
+    try:
+        scan_path = _clone_github_repo(github_url)
         result = _scan_directory(scan_path)
         result["cloned_from"] = github_url
         return result
-    except subprocess.TimeoutExpired:
-        return {"error": "Clone timed out (120s). Try a smaller repo or a specific subdirectory.", "type": "unknown"}
     except Exception as e:
         return {"error": str(e), "type": "unknown"}
+
+
+def _build_merged_result(target: str):
+    """
+    THE single canonical scan function. Every consumer that needs a full
+    ScanResult -- Compliance, PDF export, SARIF export, Attack Graph -- must
+    call this, never call individual scanners directly. This is what keeps
+    the dashboard, PDF, and graph all reporting the same numbers.
+
+    Handles: GitHub URLs, directories (source + all MCP manifests merged),
+    single .py files, single config files (agent vs MCP auto-detected),
+    live MCP URLs.
+    """
+    from agentscan.models import ScanResult
+    target = target.strip()
+
+    if re.search(r"github[.]com/[^/]+/[^/\s]+", target):
+        target = _clone_github_repo(target)
+
+    p = Path(target)
+
+    if target.startswith("http://") or target.startswith("https://"):
+        from agentscan.scanners.mcp_scanner import scan_mcp
+        return scan_mcp(target)
+
+    if not p.exists():
+        return ScanResult(target=target, scanner_type="merged",
+                         error="Path not found: " + target)
+
+    if p.is_dir():
+        return _merge_directory_result(str(p))
+
+    if p.suffix == ".py":
+        from agentscan.scanners.source_scanner import scan_source
+        return scan_source(target)
+
+    if p.suffix in (".json", ".yaml", ".yml"):
+        try:
+            text = p.read_text(encoding="utf-8", errors="ignore")
+            data = json.loads(text) if p.suffix == ".json" else __import__("yaml").safe_load(text)
+            if isinstance(data, dict) and "tools" in data:
+                tools = data["tools"]
+                if tools and any(isinstance(t, dict) and "inputSchema" in t for t in tools[:5]):
+                    from agentscan.scanners.mcp_scanner import scan_mcp
+                    return scan_mcp(target)
+        except Exception:
+            pass
+        from agentscan.scanners.agent_scanner import scan_agent_config
+        return scan_agent_config(target)
+
+    from agentscan.scanners.agent_scanner import scan_agent_config
+    return scan_agent_config(target)
+
+
+# Translates MCP finding tags into the capability vocabulary that
+# build_graph_from_scan() understands (agent_scanner/source_scanner's
+# "capabilities_detected" / "cap_to_tools" scheme). MCP scanner uses its own
+# tag prefixes (MCP-SHELL, MCP-NET, etc.) which the graph engine has never
+# heard of -- without this translation, MCP findings are invisible to the
+# Attack Graph even when they are present in Findings/Compliance/PDF.
+_MCP_TAG_TO_CAPABILITY = {
+    "MCP-SHELL": "shell_exec",
+    "MCP-SECRETS": "secret_access",
+    "MCP-NET": "network_egress",
+    "MCP-DATABASE": "database",
+    "MCP-CODE-EXEC": "code_execution",
+}
+
+
+def _extract_tool_name(finding_title: str) -> str:
+    """Pull the tool name out of a finding title like "...tool 'foo'..."."""
+    if "'" in finding_title:
+        parts = finding_title.split("'")
+        if len(parts) >= 2:
+            return parts[1]
+    return finding_title
+
+
+def _merge_directory_result(dirpath: str):
+    """
+    Run source scan + all MCP manifests in a directory, return one merged
+    ScanResult. Critically, this also merges the *metadata* capability maps
+    (capabilities_detected, cap_to_tools) -- not just the findings list --
+    because the Attack Graph is built entirely from metadata, not findings.
+    Without this, MCP findings would show up in Findings/Compliance/PDF but
+    silently vanish from the Attack Graph.
+    """
+    from agentscan.models import ScanResult
+    from agentscan.scanners.source_scanner import scan_source
+    from agentscan.scanners.mcp_scanner import scan_mcp
+
+    p = Path(dirpath)
+    source_result = scan_source(dirpath)
+    all_findings = list(source_result.findings or [])
+    all_paths = list(source_result.attack_paths or [])
+    mcp_found = []
+
+    # Start from source scan's capability map -- we ADD to it, never replace it
+    merged_caps = list(source_result.metadata.get("capabilities_detected", []) or [])
+    merged_cap_to_tools = dict(source_result.metadata.get("cap_to_tools", {}) or {})
+
+    mcp_candidates = [
+        f for f in p.rglob("*.json")
+        if any(kw in f.name.lower() for kw in ("mcp", "server", "manifest", "tools"))
+        and f.stat().st_size < 500_000
+    ]
+    for mcp_file in mcp_candidates[:5]:
+        try:
+            text = mcp_file.read_text(encoding="utf-8", errors="ignore")
+            data = json.loads(text)
+            if isinstance(data, dict) and data.get("tools"):
+                mcp_r = scan_mcp(str(mcp_file))
+                if not mcp_r.error:
+                    all_findings.extend(mcp_r.findings or [])
+                    all_paths.extend(mcp_r.attack_paths or [])
+                    mcp_found.append(str(mcp_file))
+
+                    # Translate each MCP finding's tags into graph-engine capabilities
+                    for f in (mcp_r.findings or []):
+                        for tag in (f.tags or []):
+                            cap = _MCP_TAG_TO_CAPABILITY.get(tag)
+                            if cap:
+                                if cap not in merged_caps:
+                                    merged_caps.append(cap)
+                                tool_name = _extract_tool_name(f.title)
+                                merged_cap_to_tools.setdefault(cap, [])
+                                if tool_name not in merged_cap_to_tools[cap]:
+                                    merged_cap_to_tools[cap].append(tool_name)
+        except Exception:
+            pass
+
+    meta = dict(source_result.metadata or {})
+    meta["capabilities_detected"] = merged_caps
+    meta["cap_to_tools"] = merged_cap_to_tools
+    meta["mcp_manifests_found"] = mcp_found
+    meta["dependency_files"] = _find_dependency_files(dirpath)
+
+    return ScanResult(
+        target=dirpath, scanner_type="merged",
+        findings=all_findings, attack_paths=all_paths,
+        metadata=meta, scan_duration_ms=source_result.scan_duration_ms,
+    )
 
 
 def _get_graph(target: str) -> dict:
     try:
         from agentscan.graph.engine import build_graph_from_scan
-        p = Path(target)
-        if p.is_dir() or (p.exists() and p.suffix == ".py"):
-            from agentscan.scanners.source_scanner import scan_source
-            result = scan_source(target)
-        else:
-            from agentscan.scanners.agent_scanner import scan_agent_config
-            result = scan_agent_config(target)
+        result = _build_merged_result(target)
+        if result.error:
+            return {"error": result.error}
         graph = build_graph_from_scan(result)
         paths = graph.find_attack_paths()
         return _serialize_graph(graph, paths)
@@ -317,69 +471,12 @@ def _get_graph(target: str) -> dict:
 
 
 def _get_compliance(target: str) -> dict:
-    """
-    Run compliance mapping including all findings (source + MCP merged).
-    For directory targets: scans both .py source AND any MCP manifests found.
-    """
+    """Compliance mapping using the canonical merged result (same as PDF/Graph)."""
     try:
         from agentscan.compliance.framework_mapper import map_findings_to_controls
-        from agentscan.models import ScanResult
-
-        p = Path(target)
-        if p.is_dir():
-            # Merged scan: source + any MCP manifests in directory
-            from agentscan.scanners.source_scanner import scan_source
-            from agentscan.scanners.mcp_scanner import scan_mcp
-            source_result = scan_source(target)
-            all_findings = list(source_result.findings or [])
-            all_paths = list(source_result.attack_paths or [])
-
-            for mcp_file in list(p.rglob("*.json"))[:5]:
-                try:
-                    text = mcp_file.read_text(encoding="utf-8", errors="ignore")
-                    data = json.loads(text)
-                    if isinstance(data, dict) and "tools" in data:
-                        mcp_r = scan_mcp(str(mcp_file))
-                        if not mcp_r.error:
-                            all_findings.extend(mcp_r.findings or [])
-                            all_paths.extend(mcp_r.attack_paths or [])
-                except Exception:
-                    pass
-
-            result = ScanResult(
-                target=target, scanner_type="merged",
-                findings=all_findings, attack_paths=all_paths,
-                metadata=source_result.metadata or {},
-            )
-        elif p.exists() and p.suffix == ".py":
-            from agentscan.scanners.source_scanner import scan_source
-            result = scan_source(target)
-        elif target.startswith("http"):
-            from agentscan.scanners.mcp_scanner import scan_mcp
-            result = scan_mcp(target)
-        elif p.exists() and p.suffix in (".json", ".yaml", ".yml"):
-            # Check if MCP manifest
-            try:
-                text = p.read_text(encoding="utf-8", errors="ignore")
-                data = json.loads(text) if p.suffix == ".json" else {}
-                if isinstance(data, dict) and "tools" in data and any(
-                    "inputSchema" in t for t in data["tools"][:3] if isinstance(t, dict)
-                ):
-                    from agentscan.scanners.mcp_scanner import scan_mcp
-                    result = scan_mcp(target)
-                else:
-                    from agentscan.scanners.agent_scanner import scan_agent_config
-                    result = scan_agent_config(target)
-            except Exception:
-                from agentscan.scanners.agent_scanner import scan_agent_config
-                result = scan_agent_config(target)
-        else:
-            from agentscan.scanners.agent_scanner import scan_agent_config
-            result = scan_agent_config(target)
-
+        result = _build_merged_result(target)
         if result.error:
             return {"error": result.error}
-
         report = map_findings_to_controls(result)
         out = _serialize_compliance(report)
         out["findings_included"] = len(result.findings or [])
@@ -510,7 +607,13 @@ def create_app(version: str = "0.2.8") -> "Flask":
             for f in files:
                 name = f.get("name", "file.txt")
                 content = f.get("content", "")
-                dest = Path(tmp_dir) / Path(name).name
+                rel = Path(name.replace("\\", "/"))
+                safe_parts = [part for part in rel.parts if part not in ("", ".", "..")]
+                dest = Path(tmp_dir).joinpath(*safe_parts) if safe_parts else Path(tmp_dir) / "file.txt"
+                resolved = dest.resolve()
+                root = Path(tmp_dir).resolve()
+                if root not in resolved.parents and resolved != root:
+                    continue
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_text(content, encoding="utf-8", errors="ignore")
             result = _scan_directory(tmp_dir)
@@ -564,6 +667,62 @@ def create_app(version: str = "0.2.8") -> "Flask":
             return jsonify({"packages": [_serialize_result(result)], "total": 1})
         return jsonify(_get_supply_chain(content, pkg_manager))
 
+    @app.route("/api/drift/baseline", methods=["POST"])
+    def api_drift_baseline():
+        """Capture the current scan as the baseline for future drift comparisons."""
+        from agentscan.drift import save_baseline
+        data = request.get_json(force=True) or {}
+        target = (data.get("target") or "").strip()
+        findings = data.get("findings", [])
+        if not target:
+            return jsonify({"error": "target required"}), 400
+        snapshot = save_baseline(target, findings)
+        return jsonify({"snapshot": snapshot})
+
+    @app.route("/api/drift/compare", methods=["POST"])
+    def api_drift_compare():
+        """Compare current findings against the saved baseline."""
+        from agentscan.drift import compute_drift
+        data = request.get_json(force=True) or {}
+        target = (data.get("target") or "").strip()
+        findings = data.get("findings", [])
+        if not target:
+            return jsonify({"error": "target required"}), 400
+        return jsonify(compute_drift(target, findings))
+
+    @app.route("/api/risk/accept", methods=["POST"])
+    def api_risk_accept():
+        from agentscan.risk_register import accept_risk
+        data = request.get_json(force=True) or {}
+        target = (data.get("target") or "").strip()
+        finding_id = (data.get("finding_id") or "").strip()
+        if not target or not finding_id:
+            return jsonify({"error": "target and finding_id required"}), 400
+        record = accept_risk(
+            target=target, finding_id=finding_id,
+            finding_title=data.get("finding_title", ""),
+            reason=data.get("reason", ""),
+            accepted_by=data.get("accepted_by", ""),
+            expires=data.get("expires", ""),
+        )
+        return jsonify({"record": record})
+
+    @app.route("/api/risk/revoke", methods=["POST"])
+    def api_risk_revoke():
+        from agentscan.risk_register import revoke_acceptance
+        data = request.get_json(force=True) or {}
+        target = (data.get("target") or "").strip()
+        finding_id = (data.get("finding_id") or "").strip()
+        revoked = revoke_acceptance(target, finding_id)
+        return jsonify({"revoked": revoked})
+
+    @app.route("/api/risk/list", methods=["POST"])
+    def api_risk_list():
+        from agentscan.risk_register import list_accepted_for_target
+        data = request.get_json(force=True) or {}
+        target = (data.get("target") or "").strip()
+        return jsonify({"accepted": list_accepted_for_target(target)})
+
     @app.route("/api/doctor", methods=["POST"])
     def api_doctor():
         data = request.get_json(force=True) or {}
@@ -572,8 +731,8 @@ def create_app(version: str = "0.2.8") -> "Flask":
 
     @app.route("/api/export/pdf", methods=["POST"])
     def api_export_pdf():
-        """Generate a full compliance PDF report and return it as a download."""
-        import tempfile, os
+        """Generate a full compliance PDF using the SAME merged result as Compliance/Graph tabs."""
+        import tempfile
         from flask import send_file
         data = request.get_json(force=True) or {}
         target = (data.get("target") or "").strip()
@@ -584,63 +743,36 @@ def create_app(version: str = "0.2.8") -> "Flask":
             return jsonify({"error": "No target"}), 400
 
         try:
-            # Run scan to get ScanResult object (not dict)
-            p = Path(target)
-            if p.is_dir() or (p.exists() and p.suffix == ".py"):
-                from agentscan.scanners.source_scanner import scan_source
-                result = scan_source(target)
-            elif target.startswith("http"):
-                from agentscan.scanners.mcp_scanner import scan_mcp
-                result = scan_mcp(target)
-            else:
-                from agentscan.scanners.agent_scanner import scan_agent_config
-                result = scan_agent_config(target)
-
+            result = _build_merged_result(target)
             if result.error:
                 return jsonify({"error": result.error}), 400
 
-            # Generate PDF
             from agentscan.compliance.audit_report import generate_audit_report
             tmp = tempfile.mktemp(suffix=".pdf", prefix="agentscan_report_")
             generate_audit_report(
-                result=result,
-                output_path=tmp,
-                agent_name=agent_name,
-                organisation=org,
-                include_dpia=True,
+                result=result, output_path=tmp,
+                agent_name=agent_name, organisation=org, include_dpia=True,
             )
-
-            return send_file(
-                tmp,
-                mimetype="application/pdf",
-                as_attachment=True,
-                download_name="agentscan_compliance_report.pdf",
-            )
+            return send_file(tmp, mimetype="application/pdf", as_attachment=True,
+                           download_name="agentscan_compliance_report.pdf")
         except Exception as e:
             import traceback
             return jsonify({"error": str(e), "detail": traceback.format_exc()}), 500
 
     @app.route("/api/export/sarif", methods=["POST"])
     def api_export_sarif():
-        """Return SARIF 2.1.0 output for GitHub Security tab integration."""
+        """Return SARIF 2.1.0 using the SAME merged result as Compliance/PDF/Graph tabs."""
         from flask import Response as FlaskResponse
         data = request.get_json(force=True) or {}
         target = (data.get("target") or "").strip()
         if not target:
             return jsonify({"error": "No target"}), 400
         try:
-            p = Path(target)
-            if p.is_dir() or (p.exists() and p.suffix == ".py"):
-                from agentscan.scanners.source_scanner import scan_source
-                result = scan_source(target)
-            else:
-                from agentscan.scanners.agent_scanner import scan_agent_config
-                result = scan_agent_config(target)
+            result = _build_merged_result(target)
             from agentscan.outputs.json_output import to_sarif
             sarif = to_sarif(result)
             return FlaskResponse(
-                json.dumps(sarif, indent=2),
-                mimetype="application/json",
+                json.dumps(sarif, indent=2), mimetype="application/json",
                 headers={"Content-Disposition": "attachment; filename=agentscan.sarif"}
             )
         except Exception as e:

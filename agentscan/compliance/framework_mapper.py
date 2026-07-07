@@ -18,6 +18,7 @@ are implicated by the findings in a scan result.
 
 from __future__ import annotations
 from dataclasses import dataclass, field
+from pathlib import Path
 from agentscan.models import ScanResult, Severity
 
 
@@ -29,6 +30,10 @@ class ControlReference:
     obligation: str       # what the control requires
     how_finding_maps: str # plain English: why this finding triggers this control
     severity: str         # "mandatory" | "recommended"
+    requirement_level: str = "mandatory"
+    owner: str = "Engineering / Security"
+    deadline: str = "TBD"
+    evidence_status: str = "not-assessed"
 
 
 @dataclass
@@ -264,6 +269,46 @@ DPDP_STATIC_GAPS = [
 ]
 
 
+def detect_audit_evidence(target_path: str) -> str:
+    """Check whether the scanned codebase contains common audit/logging evidence."""
+    path = Path(target_path)
+    if not path.exists():
+        return "not-found"
+
+    evidence_markers = [
+        "logging", "audit", "audit_log", "audit_logs", "logger", "structured_log",
+        "cloudtrail", "opentelemetry", "sentry", "prometheus", "monitoring",
+    ]
+
+    for candidate in path.rglob("*"):
+        if not candidate.is_file():
+            continue
+        try:
+            text = candidate.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        lowered = text.lower()
+        if any(marker in lowered for marker in evidence_markers):
+            return "present"
+    return "not-found"
+
+
+def calculate_compliance_score(report: ComplianceReport) -> int:
+    """Return a 0-100 posture score based on controls and severity."""
+    total_controls = sum(len(m.controls) for m in report.mappings)
+    if total_controls == 0:
+        return 100
+
+    weighted_failures = 0
+    for mapping in report.mappings:
+        for control in mapping.controls:
+            severity_weight = 1.0 if control.severity == "mandatory" else 0.6
+            requirement_weight = 1.0 if control.requirement_level == "mandatory" else 0.5
+            weighted_failures += severity_weight * requirement_weight * 25
+
+    return max(0, min(100, int(100 - min(weighted_failures, 100))))
+
+
 def map_findings_to_controls(result: ScanResult) -> ComplianceReport:
     """
     Takes a ScanResult and returns a ComplianceReport mapping
@@ -271,6 +316,8 @@ def map_findings_to_controls(result: ScanResult) -> ComplianceReport:
     """
     mappings: list[ComplianceMapping] = []
     framework_control_counts: dict[str, set] = {}
+
+    evidence_status = detect_audit_evidence(result.target)
 
     for finding in result.reportable_findings:
         controls: list[ControlReference] = []
@@ -282,6 +329,16 @@ def map_findings_to_controls(result: ScanResult) -> ComplianceReport:
                     fw = c["framework"]
                     cid = c["control_id"]
                     framework_control_counts.setdefault(fw, set()).add(cid)
+                    requirement_level = "mandatory" if c["severity"] == "mandatory" else "recommended"
+                    owner = "Engineering / Security"
+                    deadline = "30 days" if requirement_level == "mandatory" else "90 days"
+                    if fw in {"SOC 2", "NIST AI RMF"}:
+                        owner = "Security / Compliance"
+                        deadline = "90 days"
+                    elif fw in {"RBI AI-ACT&RS", "RBI MRM 2026", "DPDP Rules 2025", "SEBI CSCRF"}:
+                        owner = "Security / Compliance / Legal"
+                        deadline = "14 days"
+
                     controls.append(ControlReference(
                         framework=fw,
                         control_id=cid,
@@ -289,6 +346,10 @@ def map_findings_to_controls(result: ScanResult) -> ComplianceReport:
                         obligation=c["obligation"],
                         how_finding_maps=f"Finding '{finding.title}' triggers this control because the agent capability '{tag}' is directly regulated.",
                         severity=c["severity"],
+                        requirement_level=requirement_level,
+                        owner=owner,
+                        deadline=deadline,
+                        evidence_status=evidence_status,
                     ))
 
         if controls:

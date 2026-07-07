@@ -57,7 +57,11 @@ def _esc(s) -> str:
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 from agentscan.models import ScanResult, Severity
-from agentscan.compliance.framework_mapper import map_findings_to_controls, DPDP_STATIC_GAPS
+from agentscan.compliance.framework_mapper import (
+    calculate_compliance_score,
+    map_findings_to_controls,
+    DPDP_STATIC_GAPS,
+)
 from agentscan.compliance.dpia import generate_dpia
 
 
@@ -185,14 +189,17 @@ def generate_audit_report(
     story.append(HRFlowable(width=W, thickness=1, color=BLUE, spaceAfter=6))
 
     risk_score = result.risk_score()
+    compliance_score = calculate_compliance_score(compliance_report)
     posture_colour = RED_DARK if compliance_report.overall_posture == "non-compliant" else \
                      ORANGE if compliance_report.overall_posture == "partial" else GREEN_DARK
     posture_label = compliance_report.overall_posture.upper().replace("-", " ")
+    evidence_present = sum(1 for mapping in compliance_report.mappings for control in mapping.controls if control.evidence_status == "present")
+    evidence_total = sum(len(mapping.controls) for mapping in compliance_report.mappings)
 
     exec_data = [
-        ["Risk Score", "Compliance Posture", "Critical Findings", "Attack Paths", "Frameworks Assessed"],
+        ["Compliance Score", "Compliance Posture", "Critical Findings", "Attack Paths", "Frameworks Assessed"],
         [
-            Paragraph(f"<b>{risk_score}/100</b>", ParagraphStyle("rs", fontSize=16,
+            Paragraph(f"<b>{compliance_score}/100</b>", ParagraphStyle("rs", fontSize=16,
                       textColor=posture_colour, fontName="Helvetica-Bold", leading=20)),
             Paragraph(f"<b>{posture_label}</b>", ParagraphStyle("cp", fontSize=11,
                       textColor=posture_colour, fontName="Helvetica-Bold", leading=14)),
@@ -221,7 +228,17 @@ def generate_audit_report(
         ("PADDING", (0, 0), (-1, -1), 8),
     ]))
     story.append(exec_table)
-    story.append(Spacer(1, 6*mm))
+    story.append(Spacer(1, 3*mm))
+    if evidence_total:
+        story.append(Paragraph(
+            f"Evidence coverage: {evidence_present}/{evidence_total} mapped controls show observable logging/audit evidence in the codebase.",
+            S["body"]
+        ))
+    story.append(Paragraph(
+        "Weighted score reflects the severity of the mapped controls, whether they are mandatory, and whether audit evidence is presently observable.",
+        S["small"]
+    ))
+    story.append(Spacer(1, 4*mm))
 
     # Priority gaps
     if compliance_report.priority_gaps:
@@ -326,25 +343,33 @@ def generate_audit_report(
 
     ctrl_header = [
         Paragraph(h, ParagraphStyle("ch", fontSize=8, textColor=colors.white, fontName="Helvetica-Bold"))
-        for h in ["Framework", "Control ID", "Control", "Finding", "Obligation"]
+        for h in ["Framework", "Control ID", "Control", "Finding", "Evidence", "Owner / Deadline", "Level", "Obligation"]
     ]
     ctrl_rows = [ctrl_header]
 
     for mapping in compliance_report.mappings:
         for ctrl in mapping.controls:
+            evidence_text = "Present" if ctrl.evidence_status == "present" else "Not found"
+            evidence_color = GREEN_DARK if ctrl.evidence_status == "present" else RED_DARK
+            level_text = ctrl.requirement_level.upper()
+            level_color = RED_DARK if ctrl.requirement_level == "mandatory" else ORANGE
+            owner_deadline = f"Owner: {_esc(ctrl.owner)}<br/>Deadline: {_esc(ctrl.deadline)}"
             ctrl_rows.append([
                 Paragraph(ctrl.framework, S["small"]),
                 Paragraph(ctrl.control_id, ParagraphStyle("cid", fontSize=7, textColor=BLUE,
                                                            fontName="Helvetica-Bold", leading=10)),
                 Paragraph(ctrl.control_name, S["small"]),
                 Paragraph(_esc(mapping.finding_title[:60]), S["small"]),
-                Paragraph(ctrl.obligation[:100], S["small"]),
+                Paragraph(f'<font color="{evidence_color}">{_esc(evidence_text)}</font>', S["small"]),
+                Paragraph(owner_deadline, S["small"]),
+                Paragraph(f'<font color="{level_color}">{_esc(level_text)}</font>', S["small"]),
+                Paragraph(ctrl.obligation[:140], S["small"]),
             ])
 
     if len(ctrl_rows) == 1:
-        ctrl_rows.append([Paragraph("--", S["small"])] * 5)
+        ctrl_rows.append([Paragraph("--", S["small"])] * 8)
 
-    ctrl_table = Table(ctrl_rows, colWidths=[30*mm, 22*mm, 35*mm, 40*mm, 43*mm])
+    ctrl_table = Table(ctrl_rows, colWidths=[20*mm, 18*mm, 30*mm, 28*mm, 18*mm, 25*mm, 16*mm, 35*mm])
     ctrl_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), TEAL),
         ("GRID", (0, 0), (-1, -1), 0.5, BORDER),

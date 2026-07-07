@@ -125,8 +125,10 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .ctrl-tbl tr:hover td{background:rgba(255,255,255,.02)}
 .pkg-result{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 13px;margin-bottom:7px;display:flex;align-items:center;gap:10px}
 .pkg-name{font-family:var(--mono);font-size:12px;flex:1}.pkg-score{font-size:14px;font-weight:700}
-.req-area{width:100%;min-height:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:11px;padding:8px;outline:none;resize:vertical;margin-bottom:7px}
-.req-area:focus{border-color:var(--accent)}
+.dep-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:13px 15px;margin-bottom:14px}
+.dep-card.found{border-color:rgba(63,185,80,.35);background:rgba(63,185,80,.05)}
+.dep-title{font-size:13px;font-weight:700;margin-bottom:3px}.dep-meta{font-size:11px;color:var(--muted);font-family:var(--mono);word-break:break-all;margin-bottom:10px}
+.dep-actions{display:flex;gap:8px;flex-wrap:wrap}.dep-actions .btn-sm{margin-bottom:0}
 .sec-title{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;margin-top:16px;padding-bottom:5px;border-bottom:1px solid var(--border)}
 .export-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:18px}
 .export-btn{padding:12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;cursor:pointer;text-align:center;transition:all .15s}
@@ -182,11 +184,11 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
            ondrop="handleDrop(event)">
         <div class="dz-icon">&#128194;</div>
         <div class="dz-t">Drop files or click to browse</div>
-        <div class="dz-h">.py, .yaml, .json, .yml -- auto-detected</div>
+      <div class="dz-h">Code, configs, or dependency files -- auto-detected</div>
       </div>
-      <input type="file" id="fpick" multiple accept=".py,.yaml,.yml,.json" style="display:none" onchange="handlePick(event)">
+      <input type="file" id="fpick" multiple webkitdirectory directory accept=".py,.yaml,.yml,.json,.txt,.toml" style="display:none" onchange="handlePick(event)">
       <div class="det-badge" id="det-badge"><span id="det-type"></span></div>
-      <div class="hint" id="file-hint">Select one or more files from your project</div>
+      <div class="hint" id="file-hint">Select a project folder or dependency file</div>
     </div>
 
     <div id="m-local" style="display:none">
@@ -294,17 +296,25 @@ window.handlePick = handlePick;
 
 async function processFiles(files) {
   uploadedFiles = [];
-  var supported = ['.py','.yaml','.yml','.json'];
-  var valid = files.filter(function(f){ return supported.some(function(ext){return f.name.endsWith(ext);}); });
-  if (!valid.length) { $('file-hint').textContent='No supported files (.py, .yaml, .yml, .json)'; return; }
+  var supported = ['.py','.yaml','.yml','.json','.txt','.toml'];
+  var depNames = ['package.json','pyproject.toml'];
+  var valid = files.filter(function(f){
+    var name = f.name.toLowerCase();
+    return supported.some(function(ext){return name.endsWith(ext);}) ||
+      depNames.indexOf(name)>=0 || name.indexOf('requirements')===0;
+  });
+  if (!valid.length) { $('file-hint').textContent='No supported files found in that selection'; return; }
   for (var i=0; i<valid.length; i++) {
     var content = await valid[i].text();
-    uploadedFiles.push({name: valid[i].name, content: content});
+    uploadedFiles.push({name: valid[i].webkitRelativePath || valid[i].name, content: content});
   }
   var badge = $('det-badge'), dt = $('det-type');
+  var depCount = valid.filter(function(f){
+    var n=f.name.toLowerCase(); return n==='package.json'||n==='pyproject.toml'||n.indexOf('requirements')===0;
+  }).length;
   dt.textContent = valid.length===1 ? valid[0].name : valid.length+' files selected';
   badge.classList.add('show');
-  $('file-hint').textContent = valid.length===1 ? '1 file ready' : valid.length+' files ready';
+  $('file-hint').textContent = depCount ? depCount+' dependency manifest(s) included' : (valid.length===1 ? '1 file ready' : valid.length+' files ready');
 }
 
 function onLocalChange() {
@@ -352,7 +362,7 @@ async function runScan() {
     }
     result = await resp.json();
     if (result.error) { showErr(result.error); return; }
-    curResult = result; curTarget = target;
+    curResult = result; curTarget = result.source_root || target;
     addHist(target, result.risk_score||0, result.type||result.scanner_type);
     renderResults(result, target);
     graphData = null; compData = null;
@@ -472,14 +482,21 @@ function renderResults(d, target) {
     ['CRITICAL','HIGH','MEDIUM','LOW'].forEach(function(s){if(cnt[s])h+='<button class="fchip" onclick="filterF(this,\''+s+'\')">'+s+' ('+cnt[s]+')</button>';});
     h+='</div><div id="flist">';
     rep.forEach(function(f,i){
+      var acceptedBadge = f.risk_accepted ? '<span class="fw-chip" style="background:rgba(63,185,80,.12);color:var(--green);border-color:rgba(63,185,80,.3)">Risk Accepted</span>' : '';
       h+='<div class="fcard" data-sev="'+f.severity+'" id="fc'+i+'"><div class="fhead" onclick="toggleF('+i+')">';
-      h+='<span class="schip sc-'+f.severity+'">'+f.severity+'</span><span class="ftitle">'+esc(f.title)+'</span><span class="chev">&#9654;</span></div>';
+      h+='<span class="schip sc-'+f.severity+'">'+f.severity+'</span><span class="ftitle">'+esc(f.title)+'</span>'+acceptedBadge+'<span class="chev">&#9654;</span></div>';
       h+='<div class="fbody">';
       if(f.explanation)h+='<div class="fslbl">What is happening</div><div class="fstxt">'+esc(f.explanation)+'</div>';
       if(f.impact)h+='<div class="fslbl">Impact</div><div class="fstxt">'+esc(f.impact)+'</div>';
       if(f.remediation)h+='<div class="ffix"><strong>Fix:</strong> '+esc(f.remediation)+'</div>';
       if(f.evidence&&f.evidence.length)h+='<div class="fevid">'+f.evidence.map(function(e){return esc(e.source+': '+e.observed_value);}).join('<br>')+'</div>';
       if(f.mitre_atlas&&f.mitre_atlas.length)h+='<div class="mtags">'+f.mitre_atlas.map(function(m){return '<span class="mtag">'+m+'</span>';}).join('')+'</div>';
+      if(f.risk_accepted&&f.risk_acceptance){
+        h+='<div class="fevid" style="color:var(--green);border:1px solid rgba(63,185,80,.2)">Accepted by '+esc(f.risk_acceptance.accepted_by)+' on '+esc(f.risk_acceptance.accepted_at)+'<br>Reason: '+esc(f.risk_acceptance.reason)+'</div>';
+        h+='<button class="btn-sm" onclick="revokeRisk(\''+esc(f.id)+'\')" style="margin-top:8px">Revoke acceptance</button>';
+      } else {
+        h+='<button class="btn-sm" onclick="acceptRisk(\''+esc(f.id)+'\',\''+esc(f.title).replace(/\'/g,"")+'\')" style="margin-top:8px">Accept this risk</button>';
+      }
       h+='</div></div>';
     });
     h+='</div>';
@@ -495,16 +512,20 @@ function renderResults(d, target) {
   h+='<div id="t-supply" style="display:none">';
   if(hasDepFiles) {
     var depFile = depFiles.requirements || depFiles.package_json || depFiles.pyproject || {};
-    h+='<div class="posture-card" style="cursor:pointer;margin-bottom:14px" onclick="autoScanDeps()">';
-    h+='<div><div class="plbl">Dependency file found</div><div style="font-size:13px;font-weight:600;color:var(--green)">&#9989; '+esc(depFile.path||'Found')+'</div></div>';
-    h+='<div class="psep"></div><div><div class="plbl">Action</div><div style="font-size:12px;color:var(--accent)">Click to scan all dependencies</div></div></div>';
+    h+='<div class="dep-card found">';
+    h+='<div class="dep-title" style="color:var(--green)">Dependency file found</div>';
+    h+='<div class="dep-meta">'+esc(depFile.path||'Found')+'</div>';
+    h+='<div class="dep-actions"><button class="btn-sm" onclick="autoScanDeps()">Scan discovered dependencies</button></div>';
+    h+='</div>';
+  } else {
+    h+='<div class="dep-card">';
+    h+='<div class="dep-title">No dependency manifest found in this scan</div>';
+    h+='<div class="dep-meta" style="font-family:inherit">Scan a project folder, GitHub repo, or upload a folder containing requirements.txt, package.json, or pyproject.toml.</div>';
+    h+='</div>';
   }
-  h+='<div class="sec-title">Scan a package</div>';
+  h+='<div class="sec-title">Scan one package or model</div>';
   h+='<div class="pkg-tabs"><button class="pkg-tab active" onclick="setPkg(this,\'pypi\')">PyPI</button><button class="pkg-tab" onclick="setPkg(this,\'npm\')">npm</button><button class="pkg-tab" onclick="setPkg(this,\'hf\')">HuggingFace</button><button class="pkg-tab" onclick="setPkg(this,\'dataset\')">Dataset</button></div>';
   h+='<div class="inp-row" style="margin-bottom:10px"><input class="txt-in" id="pkg-in" placeholder="e.g. langchain" onkeydown="if(event.key===\'Enter\')scanPkg()"><button class="icon-btn" onclick="scanPkg()">&#8594;</button></div>';
-  h+='<div class="sec-title">Or paste requirements.txt / package.json</div>';
-  h+='<textarea class="req-area" id="req-area" placeholder="Paste requirements.txt or package.json contents here..."></textarea>';
-  h+='<button class="btn-sm" onclick="scanReqs()" style="margin-bottom:12px">Scan all dependencies</button>';
   h+='<div id="supply-results"></div></div>';
 
   // HEALTH
@@ -532,21 +553,13 @@ function renderResults(d, target) {
   h+='<div class="sec-title">Compliance Summary</div>';
   h+='<div id="export-compliance">Loading...</div>';
 
-  // Diff view
-  var prevScan=null;
-  for(var si=1;si<scanHistory.length;si++){if(scanHistory[si].target===target){prevScan=scanHistory[si];break;}}
-  if(prevScan){
-    var sdiff=score-(prevScan.score||0);
-    h+='<div class="sec-title">Diff vs previous scan ('+prevScan.time+')</div>';
-    h+='<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px">';
-    h+='<div style="display:flex;gap:20px;align-items:center;margin-bottom:10px">';
-    h+='<div><div class="fslbl">Previous score</div><div style="font-size:22px;font-weight:700;color:'+rc(prevScan.score||0)+'">'+prevScan.score+'</div></div>';
-    h+='<div style="font-size:24px;color:var(--muted)">&#8594;</div>';
-    h+='<div><div class="fslbl">Current score</div><div style="font-size:22px;font-weight:700;color:'+rc(score)+'">'+score+'</div></div>';
-    h+='<div><div class="fslbl">Change</div><div style="font-size:22px;font-weight:700;color:'+(sdiff>0?'var(--red)':'var(--green)')+'">'+( sdiff>0?'+':'')+sdiff+'</div></div>';
-    h+='</div>';
-    h+='</div>';
-  }
+  // Drift / Compare view
+  h+='<div class="sec-title">Compare Against Baseline</div>';
+  h+='<div style="display:flex;gap:8px;margin-bottom:12px">';
+  h+='<button class="btn-sm" onclick="captureBaseline()">Capture current scan as baseline</button>';
+  h+='<button class="btn-sm" onclick="compareToBaseline()">Compare to baseline</button>';
+  h+='</div>';
+  h+='<div id="drift-content"><div class="hint">Capture a baseline now, fix some findings, re-scan, then compare -- see exactly what changed.</div></div>';
 
   h+='</div>';
 
@@ -699,15 +712,6 @@ async function scanPkg(){
 }
 window.scanPkg = scanPkg;
 
-async function scanReqs(){
-  var content=$('req-area').value.trim();if(!content)return;
-  var pm=content.startsWith('{')&&content.includes('"dependencies"')?'npm':'pypi';
-  $('supply-results').innerHTML='<div class="cbox" style="min-height:80px"><div class="spinner"></div><div class="lmsg">Scanning...</div></div>';
-  var r=await fetch('/api/supply_chain',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:content,pkg_manager:pm})});
-  var d=await r.json();renderSupply(d.packages||[]);
-}
-window.scanReqs = scanReqs;
-
 async function autoScanDeps(){
   if(!curResult||!curResult.dependency_files)return;
   var depFiles=curResult.dependency_files;
@@ -747,6 +751,84 @@ async function loadHealth(target){
 
 // ── Findings interactions ──────────────────────────────────────────
 function toggleF(i){$('fc'+i).classList.toggle('open');}
+
+async function acceptRisk(findingId, findingTitle){
+  var reason = prompt('Reason for accepting this risk (required for audit trail):');
+  if(!reason)return;
+  var acceptedBy = prompt('Your name (for the audit trail):') || 'Unknown';
+  try{
+    var r = await fetch('/api/risk/accept', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({target: curTarget, finding_id: findingId, finding_title: findingTitle, reason: reason, accepted_by: acceptedBy})});
+    var d = await r.json();
+    if(d.record){ alert('Risk accepted. Re-scan to see the updated status.'); }
+  }catch(e){ alert('Failed to accept risk: ' + e.message); }
+}
+window.acceptRisk = acceptRisk;
+
+async function revokeRisk(findingId){
+  if(!confirm('Revoke this risk acceptance? It will reappear as an open finding.'))return;
+  try{
+    var r = await fetch('/api/risk/revoke', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({target: curTarget, finding_id: findingId})});
+    var d = await r.json();
+    if(d.revoked){ alert('Risk acceptance revoked. Re-scan to see the updated status.'); }
+  }catch(e){ alert('Failed to revoke: ' + e.message); }
+}
+window.revokeRisk = revokeRisk;
+
+async function captureBaseline(){
+  if(!curResult||!curTarget){alert('Run a scan first');return;}
+  try{
+    var r=await fetch('/api/drift/baseline',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({target:curTarget, findings:curResult.findings||[]})});
+    var d=await r.json();
+    var el=$('drift-content');
+    if(el)el.innerHTML='<div class="hint" style="color:var(--green)">Baseline captured at '+esc(d.snapshot.captured_at)+' -- '+ (d.snapshot.findings||[]).length +' findings recorded.</div>';
+  }catch(e){alert('Failed to capture baseline: '+e.message);}
+}
+window.captureBaseline = captureBaseline;
+
+async function compareToBaseline(){
+  if(!curResult||!curTarget){alert('Run a scan first');return;}
+  var el=$('drift-content');
+  if(el)el.innerHTML='<div class="cbox" style="min-height:80px"><div class="spinner"></div></div>';
+  try{
+    var r=await fetch('/api/drift/compare',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({target:curTarget, findings:curResult.findings||[]})});
+    var d=await r.json();
+    if(!d.has_baseline){
+      if(el)el.innerHTML='<div class="hint">No baseline captured yet for this target. Click "Capture current scan as baseline" first.</div>';
+      return;
+    }
+    var s=d.summary;
+    var html='<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Baseline captured: '+esc(d.baseline_captured_at)+'</div>';
+    html+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">';
+    html+='<div class="sev-pill" style="border-color:rgba(248,81,73,.3);color:var(--red)"><span class="sev-n">'+s.new_count+'</span> New</div>';
+    html+='<div class="sev-pill" style="border-color:rgba(63,185,80,.3);color:var(--green)"><span class="sev-n">'+s.resolved_count+'</span> Resolved</div>';
+    html+='<div class="sev-pill" style="border-color:rgba(227,179,65,.3);color:var(--orange)"><span class="sev-n">'+s.escalated_count+'</span> Escalated</div>';
+    html+='<div class="sev-pill" style="border-color:rgba(88,166,255,.3);color:var(--accent)"><span class="sev-n">'+s.de_escalated_count+'</span> De-escalated</div>';
+    html+='<div class="sev-pill sp-INFO"><span class="sev-n">'+s.unchanged_count+'</span> Unchanged</div>';
+    html+='</div>';
+
+    if(d.new&&d.new.length){
+      html+='<div class="fslbl" style="color:var(--red)">New findings</div>';
+      d.new.forEach(function(f){html+='<div class="paction" style="background:rgba(248,81,73,.06);border-color:rgba(248,81,73,.2)">['+esc(f.severity)+'] '+esc(f.title)+'</div>';});
+    }
+    if(d.resolved&&d.resolved.length){
+      html+='<div class="fslbl" style="color:var(--green);margin-top:10px">Resolved findings</div>';
+      d.resolved.forEach(function(f){html+='<div class="paction" style="background:rgba(63,185,80,.06);border-color:rgba(63,185,80,.2);color:var(--green)">['+esc(f.severity)+'] '+esc(f.title)+'</div>';});
+    }
+    if(d.escalated&&d.escalated.length){
+      html+='<div class="fslbl" style="color:var(--orange);margin-top:10px">Escalated severity</div>';
+      d.escalated.forEach(function(e){html+='<div class="paction" style="background:rgba(227,179,65,.06);border-color:rgba(227,179,65,.2);color:var(--orange)">'+esc(e.finding.title)+' ('+esc(e.from)+' &rarr; '+esc(e.to)+')</div>';});
+    }
+    if(!d.new.length&&!d.resolved.length&&!d.escalated.length&&!d.de_escalated.length){
+      html+='<div style="color:var(--green);font-size:13px;margin-top:10px">No changes since baseline.</div>';
+    }
+    if(el)el.innerHTML=html;
+  }catch(e){if(el)el.innerHTML='<div class="hint">'+esc(e.message)+'</div>';}
+}
+window.compareToBaseline = compareToBaseline;
 window.toggleF = toggleF;
 function filterF(btn,sev){document.querySelectorAll('.fchip').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');document.querySelectorAll('.fcard').forEach(function(c){c.style.display=(sev==='ALL'||c.dataset.sev===sev)?'':'none';});}
 window.filterF = filterF;
