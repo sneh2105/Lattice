@@ -195,3 +195,22 @@ def compute_governed_score(findings: list, raw_score: int) -> dict:
         "findings_excluded_from_governed": excluded_count,
         "open_findings_count": len(open_findings),
     }
+
+
+def annotate_finding_objects(findings: list, target: str) -> None:
+    """
+    Mutates real Finding objects in place, attaching a `.status` attribute
+    (defaulting to "open") and `.status_record` (the full acceptance record,
+    or None). Used by every consumer that works with actual ScanResult
+    objects -- Compliance, PDF export, SARIF export -- not just the
+    dict-serialized dashboard JSON (see annotate_findings for that).
+
+    This is the ONE place risk status gets attached before Compliance/PDF/
+    SARIF ever see the findings, so acceptance can never show up in the
+    dashboard but silently vanish from the report, or vice versa.
+    """
+    for f in findings:
+        record = get_status(target, getattr(f, "id", ""))
+        status = record.get("status", "open") if record else "open"
+        f.status = status
+        f.status_record = record

@@ -14,6 +14,8 @@ def _sev(x) -> str:
 
 def _serialize_result(result) -> dict:
     def finding(f):
+        status = getattr(f, "status", "open")
+        status_record = getattr(f, "status_record", None)
         return {
             "id": f.id, "title": f.title,
             "severity": _sev(f.severity),
@@ -25,6 +27,14 @@ def _serialize_result(result) -> dict:
             "evidence": [{"source": e.source, "observed_value": str(e.observed_value)}
                          for e in (getattr(f, "evidence", []) or [])],
             "tags": list(getattr(f, "tags", []) or []),
+            # Risk acceptance status -- set by annotate_finding_objects() in
+            # _build_merged_result before serialization. Carrying this through
+            # is what lets Compliance/PDF/SARIF/dashboard all show the same
+            # acceptance status instead of only one of them seeing it.
+            "status": status,
+            "status_record": status_record,
+            "risk_accepted": status == "accepted_risk",  # back-compat field
+            "risk_acceptance": status_record if status == "accepted_risk" else None,
         }
     def path(p):
         return {
@@ -153,37 +163,42 @@ def _serialize_graph(graph, paths) -> dict:
 # ---------------------------------------------------------------------------
 
 def _scan_target(target: str) -> dict:
-    """Auto-detect and scan. Returns serialized result dict."""
+    """
+    Auto-detect and scan. Returns serialized result dict.
+
+    Delegates to _build_merged_result() for everything except supply-chain
+    package identifiers -- this used to have a SEPARATE GitHub-cloning code
+    path (_clone_and_scan) that diverged from _build_merged_result's own
+    GitHub handling: the dashboard's Summary/Findings tabs went through
+    _clone_and_scan (no risk-status annotation, ephemeral clone path used
+    as the risk-register key so acceptance could never match between scans),
+    while Compliance/PDF/SARIF/Graph went through _build_merged_result
+    (annotated, stable key). Two code paths for the same GitHub URL meant
+    risk acceptance could show correctly in Compliance/PDF but never in the
+    dashboard's own Findings tab, or vice versa. Unified to one path.
+    """
     target = target.strip()
 
-    # Supply chain
+    # Supply chain -- _build_merged_result doesn't handle package identifiers,
+    # only file/directory/URL targets, so this stays a separate branch.
     for prefix in ("pypi:", "npm:", "hf:", "dataset:"):
         if target.startswith(prefix):
             from agentscan.scanners.supply_chain_scanner import scan_supply_chain
             return {**_serialize_result(scan_supply_chain(target)), "type": "supply"}
 
-    # GitHub
-    if re.search(r"github[.]com/[^/]+/[^/\s]+", target):
-        return _clone_and_scan(target)
+    result = _build_merged_result(target)
+    if result.error:
+        return {"error": result.error, "type": "unknown"}
 
-    # Live URL -> MCP
-    if target.startswith("http://") or target.startswith("https://"):
-        from agentscan.scanners.mcp_scanner import scan_mcp
-        return {**_serialize_result(scan_mcp(target)), "type": "mcp"}
-
-    p = Path(target)
-    if not p.exists():
-        return {"error": "Path not found: " + target, "type": "unknown"}
-
-    # Directory: scan source + auto-discover MCP manifests
-    if p.is_dir():
-        out = _scan_directory(str(p))
-    else:
-        out = _scan_file(p)
+    out = _serialize_result(result)
+    out["type"] = result.scanner_type
+    out["mcp_manifests_found"] = (result.metadata or {}).get("mcp_manifests_found", [])
+    out["dependency_files"] = (result.metadata or {}).get("dependency_files", {})
+    if result.target != target:
+        out["cloned_from"] = target  # original GitHub URL, before clone-path substitution
 
     if "findings" in out:
-        from agentscan.risk_register import annotate_findings, compute_governed_score
-        out["findings"] = annotate_findings(out["findings"], target)
+        from agentscan.risk_register import compute_governed_score
         scores = compute_governed_score(out["findings"], out.get("risk_score", 0))
         out["raw_score"] = scores["raw_score"]
         out["governed_score"] = scores["governed_score"]
@@ -329,9 +344,17 @@ def _build_merged_result(target: str):
     Handles: GitHub URLs, directories (source + all MCP manifests merged),
     single .py files, single config files (agent vs MCP auto-detected),
     live MCP URLs.
+
+    IMPORTANT: for GitHub URLs, the result's .target is set back to the
+    original stable URL (e.g. "github.com/user/repo"), not the ephemeral
+    temp-directory path used internally to actually read the files. Risk
+    acceptance is keyed on result.target -- if it were left as the temp
+    clone path, every fresh scan of the same repo would get a brand new
+    random tempdir and risk acceptance would never match between scans.
     """
     from agentscan.models import ScanResult
     target = target.strip()
+    original_target = target  # preserved across the clone-path substitution below
 
     if re.search(r"github[.]com/[^/]+/[^/\s]+", target):
         target = _clone_github_repo(target)
@@ -340,18 +363,29 @@ def _build_merged_result(target: str):
 
     if target.startswith("http://") or target.startswith("https://"):
         from agentscan.scanners.mcp_scanner import scan_mcp
-        return scan_mcp(target)
+        result = scan_mcp(target)
+        from agentscan.risk_register import annotate_finding_objects
+        annotate_finding_objects(result.findings or [], original_target)
+        return result
 
     if not p.exists():
-        return ScanResult(target=target, scanner_type="merged",
+        return ScanResult(target=original_target, scanner_type="merged",
                          error="Path not found: " + target)
 
     if p.is_dir():
-        return _merge_directory_result(str(p))
+        result = _merge_directory_result(str(p))
+        result.target = original_target
+        from agentscan.risk_register import annotate_finding_objects
+        annotate_finding_objects(result.findings or [], original_target)
+        return result
 
     if p.suffix == ".py":
         from agentscan.scanners.source_scanner import scan_source
-        return scan_source(target)
+        result = scan_source(target)
+        result.target = original_target
+        from agentscan.risk_register import annotate_finding_objects
+        annotate_finding_objects(result.findings or [], original_target)
+        return result
 
     if p.suffix in (".json", ".yaml", ".yml"):
         try:
@@ -361,14 +395,26 @@ def _build_merged_result(target: str):
                 tools = data["tools"]
                 if tools and any(isinstance(t, dict) and "inputSchema" in t for t in tools[:5]):
                     from agentscan.scanners.mcp_scanner import scan_mcp
-                    return scan_mcp(target)
+                    result = scan_mcp(target)
+                    result.target = original_target
+                    from agentscan.risk_register import annotate_finding_objects
+                    annotate_finding_objects(result.findings or [], original_target)
+                    return result
         except Exception:
             pass
         from agentscan.scanners.agent_scanner import scan_agent_config
-        return scan_agent_config(target)
+        result = scan_agent_config(target)
+        result.target = original_target
+        from agentscan.risk_register import annotate_finding_objects
+        annotate_finding_objects(result.findings or [], original_target)
+        return result
 
     from agentscan.scanners.agent_scanner import scan_agent_config
-    return scan_agent_config(target)
+    result = scan_agent_config(target)
+    result.target = original_target
+    from agentscan.risk_register import annotate_finding_objects
+    annotate_finding_objects(result.findings or [], original_target)
+    return result
 
 
 # Translates MCP finding tags into the capability vocabulary that

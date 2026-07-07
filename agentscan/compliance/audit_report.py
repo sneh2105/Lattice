@@ -196,6 +196,17 @@ def generate_audit_report(
     evidence_present = sum(1 for mapping in compliance_report.mappings for control in mapping.controls if control.evidence_status == "present")
     evidence_total = sum(len(mapping.controls) for mapping in compliance_report.mappings)
 
+    # Raw vs governed risk score: governed excludes findings marked
+    # accepted_risk / false_positive / remediated via the risk acceptance
+    # workflow. A board sign-off needs to see both -- raw is "what the code
+    # actually contains", governed is "what open risk remains after review".
+    from agentscan.risk_register import annotate_findings as _annotate_dicts, compute_governed_score as _compute_governed
+    _finding_dicts = [{"id": f.id, "severity": f.severity.value} for f in (result.findings or [])]
+    _annotate_dicts(_finding_dicts, result.target)
+    _governed = _compute_governed(_finding_dicts, risk_score)
+    governed_score = _governed["governed_score"]
+    reviewed_count = _governed["findings_excluded_from_governed"]
+
     exec_data = [
         ["Compliance Score", "Compliance Posture", "Critical Findings", "Attack Paths", "Frameworks Assessed"],
         [
@@ -229,6 +240,14 @@ def generate_audit_report(
     ]))
     story.append(exec_table)
     story.append(Spacer(1, 3*mm))
+    if reviewed_count > 0:
+        story.append(Paragraph(
+            f"<b>Risk Score:</b> {risk_score}/100 raw &nbsp;|&nbsp; "
+            f"<font color=\"#2d6a2d\"><b>{governed_score}/100 governed</b></font> "
+            f"({reviewed_count} finding(s) excluded after review -- see Risk Acceptance Register below)",
+            S["body"],
+        ))
+        story.append(Spacer(1, 2*mm))
     if evidence_total:
         story.append(Paragraph(
             f"Evidence coverage: {evidence_present}/{evidence_total} mapped controls show observable logging/audit evidence in the codebase.",
@@ -293,6 +312,8 @@ def generate_audit_report(
                                              fontName="Helvetica-Bold")),
         Paragraph("Finding", ParagraphStyle("fh", fontSize=8, textColor=colors.white,
                                             fontName="Helvetica-Bold")),
+        Paragraph("Status", ParagraphStyle("fh", fontSize=8, textColor=colors.white,
+                                           fontName="Helvetica-Bold")),
         Paragraph("Impact", ParagraphStyle("fh", fontSize=8, textColor=colors.white,
                                            fontName="Helvetica-Bold")),
         Paragraph("Remediation", ParagraphStyle("fh", fontSize=8, textColor=colors.white,
@@ -304,10 +325,20 @@ def generate_audit_report(
     sorted_findings = sorted(result.reportable_findings,
                              key=lambda f: sev_order.index(f.severity) if f.severity in sev_order else 99)
 
+    _status_labels = {"open": "Open", "accepted_risk": "Accepted", "false_positive": "False Positive", "remediated": "Remediated"}
+    _status_hex = {"open": "#666666", "accepted_risk": "#2d6a2d", "false_positive": "#1a4fa0", "remediated": "#7c5fc4"}
+
     for f in sorted_findings:
+        f_status = getattr(f, "status", "open")
+        status_para = Paragraph(
+            '<font color="' + _status_hex.get(f_status, "#666666") + '"><b>' +
+            _status_labels.get(f_status, f_status) + '</b></font>',
+            S["small"],
+        )
         findings_rows.append([
             _severity_cell(f.severity.value),
             Paragraph(_esc(f.title), S["small"]),
+            status_para,
             Paragraph(_esc(f.impact[:120]), S["small"]),
             Paragraph(_esc(f.remediation[:150]), S["small"]),
         ])
@@ -318,9 +349,10 @@ def generate_audit_report(
             Paragraph("No reportable findings", S["body"]),
             Paragraph("--", S["small"]),
             Paragraph("--", S["small"]),
+            Paragraph("--", S["small"]),
         ])
 
-    findings_table = Table(findings_rows, colWidths=[22*mm, 48*mm, 50*mm, 50*mm])
+    findings_table = Table(findings_rows, colWidths=[18*mm, 42*mm, 22*mm, 44*mm, 44*mm])
     findings_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BLUE),
         ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
@@ -329,6 +361,49 @@ def generate_audit_report(
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_BG]),
     ]))
     story.append(findings_table)
+
+    # -- RISK ACCEPTANCE REGISTER ---------------------------------------------
+    # Only rendered when at least one finding has a non-open status -- keeps
+    # the report clean for scans where nothing has been reviewed yet.
+    reviewed_findings = [f for f in sorted_findings if getattr(f, "status", "open") != "open"]
+    if reviewed_findings:
+        story.append(Spacer(1, 4*mm))
+        story.append(Paragraph("Risk Acceptance Register", S["section_head"]))
+        story.append(HRFlowable(width=W, thickness=1, color=BLUE, spaceAfter=6))
+        story.append(Paragraph(
+            "The following findings have been formally reviewed. Each entry below "
+            "is a complete audit-trail record: who made the decision, when, and why.",
+            S["body"],
+        ))
+        story.append(Spacer(1, 2*mm))
+
+        for f in reviewed_findings:
+            record = getattr(f, "status_record", None) or {}
+            status_label = _status_labels.get(getattr(f, "status", "open"), "Unknown")
+            status_hex = _status_hex.get(getattr(f, "status", "open"), "#666666")
+            register_data = [
+                [Paragraph(
+                    f'<font color="{status_hex}"><b>{status_label}</b></font> -- {_esc(f.title[:80])}',
+                    ParagraphStyle("rh", fontSize=9, fontName="Helvetica-Bold", leading=13)
+                ), ""],
+                [Paragraph("Reviewer", S["label"]), Paragraph(_esc(record.get("reviewer", "Unknown")), S["body"])],
+                [Paragraph("Date", S["label"]), Paragraph(_esc(record.get("set_at", "")), S["body"])],
+                [Paragraph("Reason", S["label"]), Paragraph(_esc(record.get("reason", "")), S["body"])],
+            ]
+            if record.get("expires"):
+                register_data.append([Paragraph("Expires", S["label"]), Paragraph(_esc(record["expires"]), S["body"])])
+
+            register_table = Table(register_data, colWidths=[30*mm, W - 30*mm])
+            register_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef6ee")),
+                ("SPAN", (0, 0), (-1, 0)),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#c8e0c8")),
+                ("PADDING", (0, 0), (-1, -1), 6),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]))
+            story.append(register_table)
+            story.append(Spacer(1, 3*mm))
+
 
     # -- COMPLIANCE CONTROL MAPPING -------------------------------------------
     story.append(PageBreak())

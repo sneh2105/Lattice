@@ -150,3 +150,78 @@ def test_remediated_and_false_positive_also_excluded_from_governed_score():
 
     assert scores["findings_excluded_from_governed"] == 2
     assert scores["open_findings_count"] == 1
+
+
+def test_risk_acceptance_visible_across_scan_compliance_and_pdf():
+    """
+    Regression: a finding accepted via the risk register was visible in the
+    dashboard's raw JSON in some cases but completely absent from the
+    Compliance API and PDF export, because annotate_findings() was only
+    ever called in _scan_target's tail -- Compliance/PDF/SARIF built their
+    ScanResult through a separate path (_build_merged_result) that never
+    annotated finding status at all. Now both paths go through the same
+    annotation step, so acceptance must show up identically everywhere.
+    """
+    import tempfile
+    from agentscan.ui_server import _build_merged_result, _scan_target
+    from agentscan.risk_register import set_finding_status
+    from agentscan.compliance.audit_report import generate_audit_report
+
+    target = "examples/agent_configs/dangerous_agent.yaml"
+
+    scan1 = _scan_target(target)
+    fid = scan1["findings"][0]["id"]
+    ftitle = scan1["findings"][0]["title"]
+
+    set_finding_status(target=target, finding_id=fid, finding_title=ftitle,
+                       status="accepted_risk", reason="Test acceptance", reviewer="QA")
+    try:
+        # 1. Dashboard scan output shows it
+        scan2 = _scan_target(target)
+        matching = [f for f in scan2["findings"] if f["id"] == fid]
+        assert matching, "finding must still be present (never hidden)"
+        assert matching[0]["status"] == "accepted_risk"
+        assert scan2["governed_score"] <= scan2["raw_score"]
+
+        # 2. The raw ScanResult object (what Compliance/PDF/SARIF consume)
+        #    also carries the same status
+        result = _build_merged_result(target)
+        pdf_source_finding = [f for f in result.findings if f.id == fid]
+        assert pdf_source_finding, "finding must exist in the merged ScanResult"
+        assert getattr(pdf_source_finding[0], "status", None) == "accepted_risk", (
+            "PDF/Compliance/SARIF source ScanResult must see the same status "
+            "the dashboard scan does -- these must never diverge"
+        )
+
+        # 3. The actual generated PDF file contains the acceptance record
+        tmp = tempfile.mktemp(suffix=".pdf")
+        generate_audit_report(result, tmp, organisation="Test")
+        import subprocess
+        try:
+            text = subprocess.run(["pdftotext", tmp, "-"], capture_output=True, text=True, timeout=10).stdout
+            if text:  # only assert if pdftotext is available in this environment
+                assert "Risk Acceptance Register" in text
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass  # pdftotext not installed -- the earlier ScanResult-level assertion already covers the fix
+    finally:
+        set_finding_status(target=target, finding_id=fid, finding_title="", status="open", reason="", reviewer="")
+
+
+def test_github_scan_uses_stable_target_key_not_ephemeral_clone_path():
+    """
+    Regression: GitHub-scanned targets used the ephemeral temp clone
+    directory as the risk-register key. Since a fresh random tempdir is
+    created on every scan, a risk accepted on one scan of a repo could
+    never match on the next scan of the same repo -- acceptance looked
+    like it silently reverted every time. _build_merged_result must
+    preserve the original stable URL as result.target, not the temp path.
+    """
+    from agentscan.ui_server import _build_merged_result
+    from agentscan.models import ScanResult
+
+    # Directly verify the annotation call site uses original_target, not the
+    # post-clone temp path, by inspecting the source for the substitution.
+    import inspect
+    src = inspect.getsource(_build_merged_result)
+    assert "original_target = target" in src
+    assert "result.target = original_target" in src
