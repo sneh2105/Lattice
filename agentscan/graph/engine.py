@@ -622,8 +622,7 @@ def build_graph_from_scan(result: ScanResult) -> AttackGraph:
         ))
 
         prev_id = "agent"
-        last_target_id = None
-        last_target_node = None
+        prev_tool_id = None  # tracks the last TOOL node id specifically, to detect same-tool repeats
 
         for step in (path.steps or []):
             tag, spec = _node_spec_for_finding(step)
@@ -638,10 +637,19 @@ def build_graph_from_scan(result: ScanResult) -> AttackGraph:
                 properties={"capability": tag, "finding_id": step.id},
             )
             g.add_node(tool_node)
-            g.add_edge(Edge(
-                src=prev_id, dst=tool_id, type=EdgeType.CALLS,
-                label="invokes " + tool_name, confidence=1.0,
-            ))
+
+            # Only add the "agent invokes tool" edge once per tool per path.
+            # A single tool commonly carries multiple capability findings
+            # (e.g. one AWS client both reads secrets AND grants cloud API
+            # access) -- without this check, each additional capability on
+            # the SAME tool re-added the invocation edge and re-chained
+            # prev_id through the tool again, producing a nonsensical
+            # tool -> tool self-loop hop in the rendered path.
+            if tool_id != prev_tool_id:
+                g.add_edge(Edge(
+                    src=prev_id, dst=tool_id, type=EdgeType.CALLS,
+                    label="invokes " + tool_name, confidence=1.0,
+                ))
 
             target_node = Node(
                 id=spec["node_id"], type=spec["node_type"], label=spec["label"],
@@ -657,8 +665,57 @@ def build_graph_from_scan(result: ScanResult) -> AttackGraph:
             ))
 
             prev_id = tool_id
-            last_target_id = spec["node_id"]
-            last_target_node = target_node
+            prev_tool_id = tool_id
+
+    # Any CRITICAL/HIGH finding that never made it into an attack path (e.g.
+    # a single-tool behavioral finding like eval()/exec() that didn't combine
+    # with another capability into a multi-step chain) still gets a node --
+    # connected directly from the agent, not floating disconnected -- so it
+    # doesn't silently disappear from the graph just because it never formed
+    # a full chain. This is what the PDF/Findings tabs already show for it.
+    from agentscan.models import Severity
+    represented_finding_ids = {
+        step.id for path in (result.attack_paths or []) for step in (path.steps or [])
+    }
+    for finding in (result.findings or []):
+        if finding.id in represented_finding_ids:
+            continue
+        if finding.severity not in (Severity.CRITICAL, Severity.HIGH):
+            continue
+        tag, spec = _node_spec_for_finding(finding)
+        if not spec:
+            continue
+
+        g.add_predefined_entry_node("user_prompt")
+        g.add_node(agent_node)
+        g.add_edge(Edge(
+            src="user_prompt", dst="agent", type=EdgeType.INJECTS,
+            label="prompt injection", confidence=0.9, mitre=["AML.T0051"],
+        ))
+
+        tool_name = _finding_tool_name(finding)
+        tool_id = "tool_" + "".join(c if c.isalnum() else "_" for c in tool_name.lower())
+        g.add_node(Node(
+            id=tool_id, type=NodeType.TOOL, label=tool_name,
+            properties={"capability": tag, "finding_id": finding.id, "standalone": True},
+        ))
+        g.add_edge(Edge(
+            src="agent", dst=tool_id, type=EdgeType.CALLS,
+            label="invokes " + tool_name, confidence=1.0,
+        ))
+
+        target_node = Node(
+            id=spec["node_id"], type=spec["node_type"], label=spec["label"],
+            is_crown_jewel=(spec["node_type"] == NodeType.CROWN_JEWEL or spec["crown_jewel_value"] > 50),
+            crown_jewel_value=spec["crown_jewel_value"],
+            properties={"impact": spec["impact"]},
+        )
+        g.add_node(target_node)
+        g.add_edge(Edge(
+            src=tool_id, dst=spec["node_id"], type=spec["edge_type"],
+            label=spec["edge_type"].value + " via " + tool_name,
+            confidence=0.9, mitre=spec["mitre"],
+        ))
 
     g.prune_disconnected_nodes()
     return g
@@ -688,19 +745,26 @@ def graph_paths_from_attack_paths(result: ScanResult, g: AttackGraph) -> list[Gr
     for path in (result.attack_paths or []):
         node_objs: list[Node] = []
         edge_objs: list[Edge] = []
+        seen_node_ids: set = set()
+
+        def _add_node_once(n):
+            if n.id not in seen_node_ids:
+                node_objs.append(n)
+                seen_node_ids.add(n.id)
 
         entry_node = g.nodes.get("user_prompt")
         if entry_node is None:
             entry_node = ATTACKER_ENTRY_NODES["user_prompt"]
-        node_objs.append(entry_node)
+        _add_node_once(entry_node)
 
         agent_node = g.nodes.get("agent")
         if agent_node is not None:
-            node_objs.append(agent_node)
+            _add_node_once(agent_node)
             edge_objs.append(Edge(src="user_prompt", dst="agent", type=EdgeType.INJECTS,
                                   label="prompt injection", confidence=0.9, mitre=["AML.T0051"]))
 
         prev_id = "agent"
+        prev_tool_id = None
         crown_node = None
 
         for step in (path.steps or []):
@@ -712,19 +776,26 @@ def graph_paths_from_attack_paths(result: ScanResult, g: AttackGraph) -> list[Gr
             tool_node = g.nodes.get(tool_id)
             if tool_node is None:
                 continue
-            node_objs.append(tool_node)
-            edge_objs.append(Edge(src=prev_id, dst=tool_id, type=EdgeType.CALLS,
-                                  label="invokes " + tool_name, confidence=1.0))
+            _add_node_once(tool_node)
+
+            # Same fix as build_graph_from_scan: don't re-add the invocation
+            # edge or re-chain through the tool when consecutive steps share
+            # the same tool (one tool with multiple capability findings) --
+            # that was producing a nonsensical tool -> tool self-loop hop.
+            if tool_id != prev_tool_id:
+                edge_objs.append(Edge(src=prev_id, dst=tool_id, type=EdgeType.CALLS,
+                                      label="invokes " + tool_name, confidence=1.0))
 
             target_node = g.nodes.get(spec["node_id"])
             if target_node is not None:
-                node_objs.append(target_node)
+                _add_node_once(target_node)
                 edge_objs.append(Edge(src=tool_id, dst=spec["node_id"], type=spec["edge_type"],
                                       label=spec["edge_type"].value + " via " + tool_name,
                                       confidence=0.9, mitre=spec["mitre"]))
                 crown_node = target_node
 
             prev_id = tool_id
+            prev_tool_id = tool_id
 
         if crown_node is None:
             # Path had no mappable steps -- skip rather than emit a broken GraphPath
@@ -744,6 +815,45 @@ def graph_paths_from_attack_paths(result: ScanResult, g: AttackGraph) -> list[Gr
             title=path.title,
             description=path.description,
             mitre_atlas=list(path.mitre_atlas or []),
+        ))
+
+    # Standalone paths for CRITICAL/HIGH findings that never combined into a
+    # multi-tool attack_path (e.g. a lone eval()/exec() behavioral finding).
+    # These still show up in the PDF/Findings tabs as CRITICAL, so they must
+    # not silently vanish from the graph just because no chain formed.
+    from agentscan.models import Severity
+    represented_ids = {s.id for p in (result.attack_paths or []) for s in (p.steps or [])}
+    for finding in (result.findings or []):
+        if finding.id in represented_ids or finding.severity not in (Severity.CRITICAL, Severity.HIGH):
+            continue
+        tag, spec = _node_spec_for_finding(finding)
+        if not spec:
+            continue
+        tool_name = _finding_tool_name(finding)
+        tool_id = "tool_" + "".join(c if c.isalnum() else "_" for c in tool_name.lower())
+        tool_node = g.nodes.get(tool_id)
+        target_node = g.nodes.get(spec["node_id"])
+        entry_node2 = g.nodes.get("user_prompt") or ATTACKER_ENTRY_NODES["user_prompt"]
+        agent_node2 = g.nodes.get("agent")
+        if tool_node is None or target_node is None or agent_node2 is None:
+            continue
+
+        nodes = [entry_node2, agent_node2, tool_node, target_node]
+        edges = [
+            Edge(src="user_prompt", dst="agent", type=EdgeType.INJECTS, label="prompt injection", confidence=0.9, mitre=["AML.T0051"]),
+            Edge(src="agent", dst=tool_id, type=EdgeType.CALLS, label="invokes " + tool_name, confidence=1.0),
+            Edge(src=tool_id, dst=spec["node_id"], type=spec["edge_type"],
+                 label=spec["edge_type"].value + " via " + tool_name, confidence=0.9, mitre=spec["mitre"]),
+        ]
+        exploitability = _score_exploitability(nodes, edges)
+        graph_paths.append(GraphPath(
+            nodes=nodes, edges=edges,
+            entry_point=entry_node2, crown_jewel=target_node,
+            exploitability=exploitability, impact=target_node.crown_jewel_value or 50,
+            composite_score=exploitability * (target_node.crown_jewel_value or 50),
+            title=finding.title,
+            description=getattr(finding, "explanation", "") or finding.title,
+            mitre_atlas=list(getattr(finding, "mitre_atlas", []) or []),
         ))
 
     return graph_paths

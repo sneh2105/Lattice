@@ -337,11 +337,18 @@ def test_pdf_and_sarif_use_same_merged_result_as_compliance():
 
 def test_graph_paths_exactly_match_pdf_attack_paths():
     """
-    The exact assertion requested in the graph/PDF-consistency issue:
-    every path that appears in the PDF/compliance/JSON output must also
-    appear in the Attack Graph -- same count, same titles, connected by
-    real edges. This is the single test that would have caught every
-    instance of the graph/PDF divergence bug reported across this thread.
+    Every path that appears in the PDF/compliance/JSON output must also
+    appear in the Attack Graph -- same titles, connected by real edges.
+
+    NOTE on the invariant: the graph may show MORE paths than
+    result.attack_paths, because standalone CRITICAL/HIGH findings that
+    never combined into a multi-tool chain (e.g. a lone eval()/exec()
+    behavioral finding) are deliberately added to the graph as their own
+    path so they don't silently disappear just because no chain formed --
+    that is itself a separate, intentional fix (see
+    test_standalone_critical_finding_appears_as_graph_path below). The
+    invariant this test enforces is CONTAINMENT: every PDF path must be
+    present in the graph, never fewer.
     """
     from agentscan.scanners.agent_scanner import scan_agent_config
     from agentscan.graph.engine import build_graph_from_scan, graph_paths_from_attack_paths
@@ -350,26 +357,29 @@ def test_graph_paths_exactly_match_pdf_attack_paths():
     graph = build_graph_from_scan(result)
     graph_paths = graph_paths_from_attack_paths(result, graph)
 
-    # Exact count match -- the core invariant
-    assert len(graph_paths) == len(result.attack_paths), (
+    # Graph must never show FEWER paths than the PDF/JSON -- that's the
+    # actual bug this whole fix exists to prevent.
+    assert len(graph_paths) >= len(result.attack_paths), (
         f"Graph shows {len(graph_paths)} paths but PDF/JSON report "
-        f"{len(result.attack_paths)} -- these must always be identical"
+        f"{len(result.attack_paths)} -- graph must never under-report"
     )
 
     # Every PDF attack path title must appear as a graph path title
     pdf_titles = {p.title for p in result.attack_paths}
     graph_titles = {p.title for p in graph_paths}
-    assert pdf_titles == graph_titles, (
-        f"Titles diverge. In PDF only: {pdf_titles - graph_titles}. "
-        f"In graph only: {graph_titles - pdf_titles}."
+    assert pdf_titles.issubset(graph_titles), (
+        f"PDF paths missing from graph: {pdf_titles - graph_titles}"
     )
 
     # Every graph path must be an actual connected edge sequence, not a
     # disconnected collection of nodes -- entry -> ... -> crown jewel with
-    # a real edge for every hop.
+    # a real edge for every hop, and no self-loops (same node -> itself).
     for gp in graph_paths:
         assert len(gp.edges) >= 1, f"Path '{gp.title}' has no edges"
         assert len(gp.nodes) >= 2, f"Path '{gp.title}' has fewer than 2 nodes"
+        assert not any(e.src == e.dst for e in gp.edges), (
+            f"Path '{gp.title}' has a self-loop edge (duplicated hop bug)"
+        )
 
 
 def test_graph_has_no_orphan_nodes():
@@ -444,3 +454,100 @@ def test_mcp_derived_graph_paths_also_match_exactly():
     pdf_titles = {p.title for p in result.attack_paths}
     graph_titles = {p["title"] for p in graph_payload["paths"]}
     assert pdf_titles == graph_titles
+
+
+def test_no_duplicated_hop_when_one_tool_has_multiple_capabilities():
+    """
+    Regression: a tool tagged with two capabilities (e.g. one AWS client
+    both reads secrets AND grants cloud API access) produced a nonsensical
+    tool -> tool self-loop hop, because each capability finding re-added the
+    'agent invokes tool' edge and re-chained through the tool again. The
+    correct rendering is one tool node with two separate outbound capability
+    edges, not the tool invoking itself.
+    """
+    from agentscan.scanners.source_scanner import scan_source
+    from agentscan.graph.engine import build_graph_from_scan, graph_paths_from_attack_paths
+    import tempfile
+    from pathlib import Path
+
+    tmp = tempfile.mkdtemp()
+    Path(tmp, "agent.py").write_text(
+        "from langchain.tools import tool\n\n"
+        "@tool\n"
+        "def get_secret(name: str) -> str:\n"
+        "    \"\"\"Retrieve a secret from AWS.\"\"\"\n"
+        "    import boto3\n"
+        "    return boto3.client('secretsmanager').get_secret_value(SecretId=name)\n"
+    )
+    result = scan_source(tmp)
+    assert len(result.attack_paths) >= 1
+
+    graph = build_graph_from_scan(result)
+    paths = graph_paths_from_attack_paths(result, graph)
+
+    for p in paths:
+        assert not any(e.src == e.dst for e in p.edges), (
+            f"Path '{p.title}' contains a self-loop edge: "
+            f"{[(e.src, e.dst) for e in p.edges if e.src == e.dst]}"
+        )
+        # No node should appear twice in the node list for the same path
+        node_ids = [n.id for n in p.nodes]
+        assert len(node_ids) == len(set(node_ids)), (
+            f"Path '{p.title}' has a duplicated node: {node_ids}"
+        )
+
+
+def test_standalone_critical_finding_appears_as_graph_path():
+    """
+    Regression: a CRITICAL finding that never combined into a multi-tool
+    attack_path (e.g. calculator's eval()-based code_execution finding,
+    which appears in every PDF/JSON output but has no combination partner)
+    was completely absent from the Attack Graph -- no node, no path. It
+    must now render as its own standalone path, connected from the agent,
+    not merged into an existing chain and not silently dropped.
+    """
+    from agentscan.scanners.source_scanner import scan_source
+    from agentscan.graph.engine import build_graph_from_scan, graph_paths_from_attack_paths
+    import tempfile
+    from pathlib import Path
+
+    tmp = tempfile.mkdtemp()
+    Path(tmp, "agent.py").write_text(
+        "from langchain.tools import tool\n\n"
+        "@tool\n"
+        "def calculator(expr: str) -> str:\n"
+        "    \"\"\"Evaluate a math expression.\"\"\"\n"
+        "    return str(eval(expr))\n\n"
+        "@tool\n"
+        "def get_secret(name: str) -> str:\n"
+        "    \"\"\"Retrieve a secret from AWS.\"\"\"\n"
+        "    import boto3\n"
+        "    return boto3.client('secretsmanager').get_secret_value(SecretId=name)\n"
+    )
+    result = scan_source(tmp)
+
+    # Confirm the calculator's code_execution finding exists but was never
+    # part of any combined attack_path (this is the exact scenario reported)
+    calc_findings = [f for f in result.findings if "calculator" in f.title.lower()]
+    assert calc_findings, "fixture should produce a calculator finding"
+    combined_step_ids = {s.id for p in result.attack_paths for s in p.steps}
+    assert calc_findings[0].id not in combined_step_ids, (
+        "test fixture assumption broken: calculator finding unexpectedly "
+        "appears in a combined attack_path already"
+    )
+
+    graph = build_graph_from_scan(result)
+    paths = graph_paths_from_attack_paths(result, graph)
+
+    assert "tool_calculator" in graph.nodes, "calculator tool must have a graph node"
+    assert "code_exec_runtime" in graph.nodes, "code execution target node must exist"
+
+    calc_paths = [p for p in paths if "calculator" in p.title.lower()]
+    assert calc_paths, "calculator's code_execution finding must appear as its own graph path"
+
+    # It must be a real connected path, not a floating node
+    calc_path = calc_paths[0]
+    assert len(calc_path.edges) >= 2
+    node_ids = [n.id for n in calc_path.nodes]
+    assert "tool_calculator" in node_ids
+    assert "code_exec_runtime" in node_ids
