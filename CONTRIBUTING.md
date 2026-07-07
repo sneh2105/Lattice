@@ -1,9 +1,12 @@
-# Contributing to AgentScan
+# Contributing to Lattice
 
-Thanks for your interest. AgentScan is a focused tool — contributions that sharpen
+Thanks for your interest. Lattice is a focused tool -- contributions that sharpen
 detection accuracy, expand framework coverage, or improve the evaluation kit are
-most welcome. Feature requests that broaden scope significantly (e.g. a web UI,
-a server backend) are better discussed as issues first.
+most welcome. Read [ARCHITECTURE.md](ARCHITECTURE.md) first if you're touching
+the scanning pipeline, compliance/DPIA generation, or the Attack Graph --
+there's a single-source-of-truth principle (`_build_merged_result()` /
+`filter_by_disposition()`) that every new consumer must follow, or you'll
+reintroduce a bug class this project has already fixed three times.
 
 ---
 
@@ -13,7 +16,7 @@ a server backend) are better discussed as issues first.
 git clone https://github.com/sneh2105/agentscan
 cd agentscan
 pip install -e ".[dev]"
-pytest tests/unit/ -q   # must see 223 passed before you change anything
+pytest tests/unit/ -q   # must see 274 passed before you change anything
 ```
 
 ---
@@ -21,7 +24,7 @@ pytest tests/unit/ -q   # must see 223 passed before you change anything
 ## What to contribute
 
 ### 1. New framework support
-If AgentScan misses a framework you use, the fix is usually small:
+If Lattice misses a framework you use, the fix is usually small:
 
 - Add the tool registration pattern to `agentscan/scanners/source_scanner.py`
   (`TOOL_DECORATOR_NAMES`, `TOOL_REGISTRATION_CALLS`, or a new `visit_*` method)
@@ -53,7 +56,14 @@ A well-documented attack scenario is worth more than a unit test alone:
 - Run `agentscan benchmark` — all scenarios must pass
 - Update the scenario count in `README.md` and `tests/unit/test_benchmark_cli.py`
 
-### 4. Bug reports
+### 4. Compliance framework / control mapping additions
+The control library lives in `agentscan/compliance/framework_mapper.py`
+(`CONTROL_LIBRARY`). Adding a new framework (a new regulatory regime, a new
+industry standard) means adding entries keyed by capability tag, each with
+`framework`, `control_id`, `control_name`, `obligation`, and `severity`.
+See [DETECTION.md](DETECTION.md) for how capability tags map to findings.
+
+### 5. Bug reports
 File an issue with:
 - The exact command you ran
 - The input file (anonymised if necessary)
@@ -85,7 +95,7 @@ agentscan benchmark
 
 ## Pull request checklist
 
-- [ ] `pytest tests/unit/ -q` passes (223 tests)
+- [ ] `pytest tests/unit/ -q` passes (274 tests)
 - [ ] `agentscan benchmark` shows 12/12
 - [ ] New functionality has a test in `tests/unit/`
 - [ ] No non-ASCII characters introduced in `.py` files

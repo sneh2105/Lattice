@@ -1,7 +1,7 @@
-# AgentScan Evaluation Kit
+# Lattice Evaluation Kit
 
-Five canonical attack scenarios plus a safe baseline. This is what to run
-to evaluate AgentScan before deploying it anywhere — including against
+11 canonical attack scenarios plus a safe baseline. This is what to run
+to evaluate Lattice before deploying it anywhere — including against
 production-adjacent infrastructure.
 
 ## How to use this if you're evaluating AgentScan
@@ -9,27 +9,32 @@ production-adjacent infrastructure.
 ```bash
 git clone <this repo>
 cd agentscan && pip install -e ".[dev]"
-agentscan doctor examples/vulnerable_agents/01_prompt_injection   # confirm AgentScan knows what it's looking at
-cd examples/vulnerable_agents
-python run_benchmark.py   # runs all 11 vulnerable + 1 safe scenario, checks against documented thresholds
+agentscan doctor examples/vulnerable_agents/01_prompt_injection   # confirm Lattice knows what it's looking at
+agentscan benchmark        # runs all 12 scenarios, checks against documented thresholds
 ```
 
 Every scenario has a `README.md` documenting: the attack chain, the exact
 command to run, the expected output, and the recommended fix. None of
 these scenarios touch real infrastructure — they're isolated config/code
 fixtures with no live credentials, no network calls, no execution of the
-"dangerous" tools themselves. AgentScan only ever performs static analysis.
+"dangerous" tools themselves. Lattice only ever performs static analysis.
 
 ## Scenarios
 
 | # | Scenario | Tests | Min risk score |
 |---|---|---|---|
-| 01 | Prompt injection → shell | `agent` scanner, attack path detection | 50 |
+| 01 | Prompt injection -> shell | `agent` scanner, attack path detection | 50 |
 | 02 | Credential exfiltration | `agent` scanner, multi-tool chaining | 70 |
 | 03 | Shell execution (real source) | `source` scanner, AST extraction, file:line evidence | 40 |
-| 04 | Database exfiltration via MCP | `mcp` scanner, no-auth detection | 60 |
+| 04 | Database exfiltration via MCP | `mcp` scanner, no-auth detection | 40 |
 | 05 | Financial fraud chain | `source` scanner, financial_transaction capability | 55 |
-| — | Safe scoped agent (baseline) | False-positive check | must be 0 |
+| 06 | Amazon Nova Act credential + shell | `source` scanner, Nova Act framework | 90 |
+| 07 | Custom in-house agent (no framework) | `source` scanner, raw API schema detection | 90 |
+| 08 | No-code platform export (Dify-style) | `agent` scanner, Dify DSL parsing | 90 |
+| 09 | PydanticAI + LlamaIndex | `source` scanner, multi-framework file | 80 |
+| 10 | n8n workflow (no-code) | `agent` scanner, n8n JSON structure | 90 |
+| 11 | Haystack agent | `source` scanner, Haystack Tool() pattern | 90 |
+| -- | Safe scoped agent (baseline) | False-positive check | must be 0 |
 
 ## Why this exists
 
