@@ -253,3 +253,57 @@ def annotate_finding_objects(findings: list, target: str) -> None:
         status = record.get("status", "open") if record else "open"
         f.status = status
         f.status_record = record
+
+
+def filter_by_disposition(result) -> dict:
+    """
+    THE single source of truth for "what still counts as open risk" across
+    Compliance, DPIA, and Control Mapping. Every one of those consumers must
+    call this instead of reading result.findings / result.attack_paths
+    directly -- this is what guarantees a disposition change (Accept Risk /
+    False Positive / Remediated) is reflected identically in the Compliance
+    Posture banner, the Control Mapping table, and the DPIA section, instead
+    of three separate "still reads the original static findings" bugs.
+
+    Definitions:
+      - A finding counts as OPEN for compliance/DPIA purposes only if its
+        status is "open". accepted_risk findings do NOT count here -- an
+        accepted risk with a documented, owned, reviewed compensating
+        control is a different governance state than an unreviewed one,
+        and that is the entire point of a risk acceptance workflow: it
+        should be able to move a compliance posture from NON-COMPLIANT
+        toward COMPLIANT once genuinely reviewed and owned.
+      - An attack path counts as OPEN only if none of its steps have been
+        marked false_positive or remediated. If a step is disproven (false
+        positive) or fixed (remediated), the specific mechanism that path
+        depends on is gone, so the whole chain is no longer demonstrated --
+        it should stop appearing as a live "DO NOT DEPLOY" attack path.
+        A step marked accepted_risk does NOT break the path (the risk is
+        real, just tolerated) -- the path still counts as open, but findings
+        underneath it will show as accepted in the register.
+    """
+    open_findings = []
+    resolved_findings = []
+    for f in (result.findings or []):
+        status = getattr(f, "status", "open")
+        if status == "open":
+            open_findings.append(f)
+        else:
+            resolved_findings.append(f)
+
+    open_paths = []
+    resolved_paths = []
+    for p in (result.attack_paths or []):
+        step_statuses = [getattr(s, "status", "open") for s in (p.steps or [])]
+        path_broken = any(s in ("false_positive", "remediated") for s in step_statuses)
+        if path_broken:
+            resolved_paths.append(p)
+        else:
+            open_paths.append(p)
+
+    return {
+        "open_findings": open_findings,
+        "resolved_findings": resolved_findings,
+        "open_paths": open_paths,
+        "resolved_paths": resolved_paths,
+    }

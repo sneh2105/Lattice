@@ -48,6 +48,11 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
     Sections follow the structure expected by DPDP auditors and ISO 42001 Clause 8.7.
     """
     compliance_report = map_findings_to_controls(result)
+    from agentscan.risk_register import filter_by_disposition, annotate_findings, compute_governed_score
+    disposition = filter_by_disposition(result)
+    open_findings_objs = disposition["open_findings"]
+    open_paths = disposition["open_paths"]
+
     findings = result.reportable_findings
     caps = result.metadata.get("capabilities_detected", []) or []
     tool_count = result.metadata.get("tools_found", result.metadata.get("tool_count", 0))
@@ -109,14 +114,30 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
     ))
 
     # -- Section 3: Risk Identification --------------------------------------
+    # Uses only OPEN findings/paths (see risk_register.filter_by_disposition)
+    # for the headline risk list -- a finding proven false or already fixed
+    # must not keep appearing here identically to an unreviewed CRITICAL.
+    # Dispositioned findings are still shown, in a separate "Reviewed" block,
+    # so the DPIA remains a complete audit trail rather than silently
+    # dropping anything.
     risk_items = []
-    for f in findings:
+    for f in open_findings_objs:
         if f.severity in (Severity.CRITICAL, Severity.HIGH):
             risk_items.append(f"  [{f.severity.value}] {f.title}\n    Impact: {f.impact}\n    MITRE: {', '.join(f.mitre_atlas)}")
 
     attack_path_items = []
-    for p in result.attack_paths:
+    for p in open_paths:
         attack_path_items.append(f"  [CRITICAL PATH] {p.title}\n    Entry: {p.entry_point}\n    Impact: {p.impact}")
+
+    resolved_items = []
+    for f in disposition["resolved_findings"]:
+        if f.severity in (Severity.CRITICAL, Severity.HIGH):
+            status = getattr(f, "status", "open").replace("_", " ").title()
+            record = getattr(f, "status_record", None) or {}
+            resolved_items.append(
+                f"  [{status}] {f.title}\n"
+                f"    Reviewed by {record.get('reviewer', 'Unknown')} on {record.get('set_at', '')}: {record.get('reason', '')}"
+            )
 
     risk_content = "Identified risks from AgentScan analysis:\n\n"
     if attack_path_items:
@@ -124,7 +145,12 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
     if risk_items:
         risk_content += "Individual findings:\n" + "\n".join(risk_items) + "\n\n"
     if not risk_items and not attack_path_items:
-        risk_content += "No critical or high-severity risks identified in static analysis.\n\n"
+        risk_content += "No open critical or high-severity risks identified in static analysis.\n\n"
+    if resolved_items:
+        risk_content += (
+            "Reviewed and dispositioned (excluded from the risk count above, but retained "
+            "here for audit trail completeness):\n" + "\n".join(resolved_items) + "\n\n"
+        )
 
     risk_content += (
         "Note: This assessment covers static configuration analysis. "
@@ -212,22 +238,32 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
     ))
 
     # -- Section 6: Residual Risk and Recommendation -------------------------
-    risk_score = result.risk_score()
-    if risk_score >= 70 or result.attack_paths:
+    # Uses the GOVERNED score and OPEN attack paths -- a "DO NOT DEPLOY"
+    # verdict must reflect actual triage. If 2 of 3 attack-path-driving
+    # findings have been confirmed false or already fixed, the deploy
+    # recommendation must change accordingly, not keep citing the original
+    # pre-review numbers as if no review had happened.
+    _finding_dicts = [{"id": f.id, "severity": f.severity.value} for f in (result.findings or [])]
+    annotate_findings(_finding_dicts, result.target)
+    _scores = compute_governed_score(_finding_dicts)
+    risk_score = _scores["governed_score"]
+    open_path_count = len(open_paths)
+
+    if risk_score >= 70 or open_paths:
         overall_risk = "critical"
         recommendation = "do-not-deploy"
         rec_text = (
-            f"Risk score: {risk_score}/100. {len(result.attack_paths)} attack path(s) identified.\n\n"
+            f"Governed risk score: {risk_score}/100. {open_path_count} open attack path(s) remain.\n\n"
             "RECOMMENDATION: DO NOT DEPLOY without remediation.\n"
             "The agent configuration presents critical security risks that would result in non-compliance "
             "with RBI AI-ACT&RS, DPDP Act reasonable security safeguard requirements, and ISO 42001 "
-            "operational controls. Address all CRITICAL and HIGH findings before deployment."
+            "operational controls. Address all open CRITICAL and HIGH findings before deployment."
         )
     elif risk_score >= 40:
         overall_risk = "high"
         recommendation = "deploy-with-controls"
         rec_text = (
-            f"Risk score: {risk_score}/100.\n\n"
+            f"Governed risk score: {risk_score}/100.\n\n"
             "RECOMMENDATION: DEPLOY WITH CONTROLS.\n"
             "The configuration has significant risks that must be mitigated. "
             "Implement compensating controls (network allowlisting, audit logging, runtime monitoring) "
@@ -237,7 +273,7 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
         overall_risk = "medium"
         recommendation = "deploy-with-controls"
         rec_text = (
-            f"Risk score: {risk_score}/100.\n\n"
+            f"Governed risk score: {risk_score}/100.\n\n"
             "RECOMMENDATION: DEPLOY WITH MONITORING.\n"
             "The configuration presents moderate risks. Deploy with runtime monitoring enabled "
             "and schedule a re-assessment within 90 days."
@@ -246,7 +282,7 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
         overall_risk = "low"
         recommendation = "deploy"
         rec_text = (
-            f"Risk score: {risk_score}/100.\n\n"
+            f"Governed risk score: {risk_score}/100.\n\n"
             "RECOMMENDATION: DEPLOY.\n"
             "The configuration presents low risk. Maintain regular re-assessment schedule "
             "(quarterly recommended by ISO 42001 and RBI MRM 2026)."

@@ -195,7 +195,7 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
         lines.append("")
 
     # -- Footer -----------------------------------------------------------
-    lines.append(_col(DIM, "  AgentScan v" + __version__ + " - github.com/sneh2105/agentscan"))
+    lines.append(_col(DIM, "  Lattice v" + __version__ + " - by sneh with sneh <3"))
     lines.append("")
     return "\n".join(lines)
 

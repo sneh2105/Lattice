@@ -551,3 +551,126 @@ def test_standalone_critical_finding_appears_as_graph_path():
     node_ids = [n.id for n in calc_path.nodes]
     assert "tool_calculator" in node_ids
     assert "code_exec_runtime" in node_ids
+
+
+def test_compliance_score_moves_after_disposition():
+    """
+    Regression: Compliance Score/Posture banner didn't move after dispositioning
+    findings. Two compounding bugs: (1) map_findings_to_controls ignored
+    finding.status entirely, mapping ALL findings including dispositioned
+    ones; (2) calculate_compliance_score gave each CONTROL a flat 25-point
+    penalty with no per-finding cap, so one heavily-regulated finding
+    (mapping to 4+ mandatory frameworks) already saturated the score to 0
+    regardless of total finding count -- making the score a de facto binary
+    gate that never moved even after resolving most findings.
+    """
+    from agentscan.ui_server import _build_merged_result
+    from agentscan.risk_register import set_finding_status
+    from agentscan.compliance.framework_mapper import map_findings_to_controls, calculate_compliance_score
+
+    target = "examples/agent_configs/dangerous_agent.yaml"
+    result = _build_merged_result(target)
+    findings = result.findings
+
+    report_before = map_findings_to_controls(result)
+    score_before = calculate_compliance_score(report_before)
+
+    for f in findings[:2]:
+        set_finding_status(target=target, finding_id=f.id, finding_title=f.title,
+                           status="false_positive", reason="test", reviewer="QA")
+    for f in findings[2:4]:
+        set_finding_status(target=target, finding_id=f.id, finding_title=f.title,
+                           status="accepted_risk", reason="test", reviewer="QA")
+    try:
+        result2 = _build_merged_result(target)
+        report_after = map_findings_to_controls(result2)
+        score_after = calculate_compliance_score(report_after)
+
+        assert score_after != score_before, (
+            f"Compliance score did not move after dispositioning 4 findings "
+            f"({score_before} -> {score_after})"
+        )
+        assert score_after > score_before, "score should improve after disposition, not worsen"
+        assert len(report_after.mappings) < len(report_before.mappings), (
+            "dispositioned findings must be excluded from active mappings"
+        )
+        assert len(report_after.resolved_mappings) > 0, (
+            "dispositioned findings must still appear in resolved_mappings -- never silently dropped"
+        )
+    finally:
+        for f in findings[:4]:
+            set_finding_status(target=target, finding_id=f.id, finding_title="", status="open", reason="", reviewer="")
+
+
+def test_dpia_recommendation_reflects_disposition():
+    """
+    Regression: the DPIA's risk score / attack path count / deploy
+    recommendation were computed from the raw undispositioned findings and
+    attack paths, completely ignoring the risk acceptance register --
+    two of three attack-path-driving findings could be marked False
+    Positive or Remediated and the DPIA would still say "3 attack path(s)
+    identified. DO NOT DEPLOY" with the exact same pre-review numbers.
+    """
+    from agentscan.ui_server import _build_merged_result
+    from agentscan.risk_register import set_finding_status
+    from agentscan.compliance.dpia import generate_dpia
+
+    target = "examples/agent_configs/dangerous_agent.yaml"
+    result = _build_merged_result(target)
+    findings = result.findings
+
+    dpia_before = generate_dpia(result)
+    risk_section_before = [s for s in dpia_before.sections if "Risk Identification" in s.title][0]
+
+    # Mark enough findings false_positive/remediated to break some attack paths
+    for f in findings:
+        if "shell_exec" in f.tags or "secret_access" in f.tags:
+            set_finding_status(target=target, finding_id=f.id, finding_title=f.title,
+                               status="false_positive", reason="test", reviewer="QA")
+    try:
+        result2 = _build_merged_result(target)
+        dpia_after = generate_dpia(result2)
+        risk_section_after = [s for s in dpia_after.sections if "Risk Identification" in s.title][0]
+
+        assert risk_section_after.content != risk_section_before.content, (
+            "DPIA risk section must change after dispositioning findings tied to attack paths"
+        )
+        assert "Reviewed and dispositioned" in risk_section_after.content or "false positive" in risk_section_after.content.lower()
+    finally:
+        for f in findings:
+            if "shell_exec" in f.tags or "secret_access" in f.tags:
+                set_finding_status(target=target, finding_id=f.id, finding_title="", status="open", reason="", reviewer="")
+
+
+def test_control_mapping_evidence_status_reflects_disposition():
+    """
+    Regression: the Control Mapping table showed "Not found" evidence for
+    controls tied to findings marked False Positive or Remediated,
+    identical to an untouched open finding -- the evidence_status field
+    never considered finding.status at all.
+    """
+    from agentscan.ui_server import _build_merged_result
+    from agentscan.risk_register import set_finding_status
+    from agentscan.compliance.framework_mapper import map_findings_to_controls
+
+    target = "examples/agent_configs/dangerous_agent.yaml"
+    result = _build_merged_result(target)
+    findings = result.findings
+
+    set_finding_status(target=target, finding_id=findings[0].id, finding_title=findings[0].title,
+                       status="false_positive", reason="test", reviewer="QA")
+    try:
+        result2 = _build_merged_result(target)
+        report = map_findings_to_controls(result2)
+
+        resolved_evidence_statuses = {
+            ctrl.evidence_status
+            for mapping in (report.resolved_mappings or [])
+            for ctrl in mapping.controls
+        }
+        assert "not-applicable" in resolved_evidence_statuses, (
+            f"false_positive finding's controls must show 'not-applicable' evidence, "
+            f"got: {resolved_evidence_statuses}"
+        )
+    finally:
+        set_finding_status(target=target, finding_id=findings[0].id, finding_title="", status="open", reason="", reviewer="")

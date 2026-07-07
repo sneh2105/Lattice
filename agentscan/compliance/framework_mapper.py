@@ -52,6 +52,7 @@ class ComplianceReport:
     control_summary: dict[str, int]   # framework -> number of controls implicated
     overall_posture: str              # "compliant" | "partial" | "non-compliant"
     priority_gaps: list[str]          # top 3 things to fix for compliance
+    resolved_mappings: list[ComplianceMapping] = None  # dispositioned findings, kept visible, not counted
 
 
 # -- Control library ---------------------------------------------------------
@@ -294,17 +295,32 @@ def detect_audit_evidence(target_path: str) -> str:
 
 
 def calculate_compliance_score(report: ComplianceReport) -> int:
-    """Return a 0-100 posture score based on controls and severity."""
-    total_controls = sum(len(m.controls) for m in report.mappings)
-    if total_controls == 0:
+    """
+    Return a 0-100 posture score based on OPEN findings (report.mappings is
+    pre-filtered to open findings only by map_findings_to_controls -- a
+    dispositioned finding does not appear here at all).
+
+    Weighted per FINDING, not per control. The previous formula gave every
+    implicated control a flat 25-point penalty with no per-finding cap --
+    since a single finding routinely maps to 4+ mandatory controls
+    simultaneously (RBI + DPDP + ISO 42001 + SOC 2 all regulate the same
+    underlying capability), one heavily-regulated finding could already
+    saturate weighted_failures past 100 regardless of how many total
+    findings existed. That made the score a de facto binary 0-or-100 gate
+    that never moved even after resolving most of a scan's findings --
+    exactly the reported symptom ("5 of 7 findings dispositioned... still
+    0/100"). Capping the penalty per finding (based on the finding's own
+    severity, not how many frameworks happen to regulate it) makes the
+    score actually graduated and responsive to real triage progress.
+    """
+    if not report.mappings:
         return 100
 
-    weighted_failures = 0
+    SEVERITY_PENALTY = {"CRITICAL": 22, "HIGH": 14, "MEDIUM": 6, "LOW": 2, "INFO": 0}
+
+    weighted_failures = 0.0
     for mapping in report.mappings:
-        for control in mapping.controls:
-            severity_weight = 1.0 if control.severity == "mandatory" else 0.6
-            requirement_weight = 1.0 if control.requirement_level == "mandatory" else 0.5
-            weighted_failures += severity_weight * requirement_weight * 25
+        weighted_failures += SEVERITY_PENALTY.get(mapping.finding_severity, 10)
 
     return max(0, min(100, int(100 - min(weighted_failures, 100))))
 
@@ -313,71 +329,110 @@ def map_findings_to_controls(result: ScanResult) -> ComplianceReport:
     """
     Takes a ScanResult and returns a ComplianceReport mapping
     each finding to the compliance controls it implicates.
+
+    Only OPEN findings (see risk_register.filter_by_disposition) count
+    toward the active control mappings, posture, and score -- a finding
+    marked accepted_risk / false_positive / remediated has been reviewed
+    and should move the compliance posture, not sit there looking identical
+    to an unreviewed CRITICAL finding. Resolved findings are NOT dropped
+    from the report entirely -- they're mapped separately into
+    resolved_mappings so the full audit trail (what was found, what was
+    decided, why) stays visible, just no longer counted against the score.
     """
+    from agentscan.risk_register import filter_by_disposition
+    disposition = filter_by_disposition(result)
+
     mappings: list[ComplianceMapping] = []
+    resolved_mappings: list[ComplianceMapping] = []
     framework_control_counts: dict[str, set] = {}
 
     evidence_status = detect_audit_evidence(result.target)
 
-    for finding in result.reportable_findings:
-        controls: list[ControlReference] = []
+    def _build_mappings_for(findings_list, target_list, count_toward_frameworks):
+        for finding in findings_list:
+            if finding not in result.reportable_findings:
+                continue
+            controls: list[ControlReference] = []
+            for tag in finding.tags:
+                if tag in CONTROL_LIBRARY:
+                    for c in CONTROL_LIBRARY[tag]:
+                        fw = c["framework"]
+                        cid = c["control_id"]
+                        if count_toward_frameworks:
+                            framework_control_counts.setdefault(fw, set()).add(cid)
+                        requirement_level = "mandatory" if c["severity"] == "mandatory" else "recommended"
+                        owner = "Engineering / Security"
+                        deadline = "30 days" if requirement_level == "mandatory" else "90 days"
+                        if fw in {"SOC 2", "NIST AI RMF"}:
+                            owner = "Security / Compliance"
+                            deadline = "90 days"
+                        elif fw in {"RBI AI-ACT&RS", "RBI MRM 2026", "DPDP Rules 2025", "SEBI CSCRF"}:
+                            owner = "Security / Compliance / Legal"
+                            deadline = "14 days"
 
-        # Match on tags
-        for tag in finding.tags:
-            if tag in CONTROL_LIBRARY:
-                for c in CONTROL_LIBRARY[tag]:
-                    fw = c["framework"]
-                    cid = c["control_id"]
-                    framework_control_counts.setdefault(fw, set()).add(cid)
-                    requirement_level = "mandatory" if c["severity"] == "mandatory" else "recommended"
-                    owner = "Engineering / Security"
-                    deadline = "30 days" if requirement_level == "mandatory" else "90 days"
-                    if fw in {"SOC 2", "NIST AI RMF"}:
-                        owner = "Security / Compliance"
-                        deadline = "90 days"
-                    elif fw in {"RBI AI-ACT&RS", "RBI MRM 2026", "DPDP Rules 2025", "SEBI CSCRF"}:
-                        owner = "Security / Compliance / Legal"
-                        deadline = "14 days"
+                        finding_status = getattr(finding, "status", "open")
+                        this_evidence_status = evidence_status
+                        how_maps = f"Finding '{finding.title}' triggers this control because the agent capability '{tag}' is directly regulated."
+                        if finding_status != "open":
+                            # Evidence status must reflect the disposition, not
+                            # silently keep showing "not found" for a finding
+                            # that's been confirmed wrong or already fixed --
+                            # that was the exact bug reported.
+                            this_evidence_status = {
+                                "accepted_risk": "accepted",
+                                "false_positive": "not-applicable",
+                                "remediated": "remediated",
+                            }.get(finding_status, evidence_status)
+                            status_record = getattr(finding, "status_record", None) or {}
+                            how_maps += (
+                                f" Status: {finding_status.replace('_', ' ').title()}"
+                                f" (reviewed by {status_record.get('reviewer', 'Unknown')}"
+                                f" on {status_record.get('set_at', '')}"
+                                f" -- {status_record.get('reason', '')})."
+                            )
 
-                    controls.append(ControlReference(
-                        framework=fw,
-                        control_id=cid,
-                        control_name=c["control_name"],
-                        obligation=c["obligation"],
-                        how_finding_maps=f"Finding '{finding.title}' triggers this control because the agent capability '{tag}' is directly regulated.",
-                        severity=c["severity"],
-                        requirement_level=requirement_level,
-                        owner=owner,
-                        deadline=deadline,
-                        evidence_status=evidence_status,
-                    ))
+                        controls.append(ControlReference(
+                            framework=fw, control_id=cid, control_name=c["control_name"],
+                            obligation=c["obligation"], how_finding_maps=how_maps,
+                            severity=c["severity"], requirement_level=requirement_level,
+                            owner=owner, deadline=deadline, evidence_status=this_evidence_status,
+                        ))
+            if controls:
+                target_list.append(ComplianceMapping(
+                    finding_id=finding.id, finding_title=finding.title,
+                    finding_severity=finding.severity.value, controls=controls,
+                ))
 
-        if controls:
-            mappings.append(ComplianceMapping(
-                finding_id=finding.id,
-                finding_title=finding.title,
-                finding_severity=finding.severity.value,
-                controls=controls,
-            ))
+    _build_mappings_for(disposition["open_findings"], mappings, count_toward_frameworks=True)
+    _build_mappings_for(disposition["resolved_findings"], resolved_mappings, count_toward_frameworks=False)
 
-    # Determine overall posture
-    critical_count = result.critical_count
-    has_attack_paths = bool(result.attack_paths)
+    # Determine overall posture -- based on OPEN findings/paths only. A
+    # finding or attack path that's been reviewed and dispositioned
+    # (accepted with compensating controls, proven false, or already fixed)
+    # is a fundamentally different governance state than an unreviewed one,
+    # and must be able to move the posture from NON-COMPLIANT toward
+    # COMPLIANT -- otherwise a full triage pass changes nothing the reader
+    # sees first, which is the exact confusion reported.
+    open_findings = disposition["open_findings"]
+    open_paths = disposition["open_paths"]
+    open_critical_count = sum(1 for f in open_findings if f.severity.value == "CRITICAL")
+    open_high_count = sum(1 for f in open_findings if f.severity.value == "HIGH")
+    has_open_attack_paths = bool(open_paths)
 
-    if critical_count >= 2 or has_attack_paths:
+    if open_critical_count >= 2 or has_open_attack_paths:
         posture = "non-compliant"
-    elif critical_count == 1 or result.high_count >= 3:
+    elif open_critical_count == 1 or open_high_count >= 3:
         posture = "partial"
     else:
         posture = "compliant"
 
-    # Priority gaps
+    # Priority gaps -- also computed from open findings/paths only
     priority_gaps = []
-    if result.attack_paths:
-        priority_gaps.append(f"Resolve {len(result.attack_paths)} critical attack path(s) before any compliance claim is valid")
-    if any("secret_access" in f.tags for f in result.reportable_findings):
+    if open_paths:
+        priority_gaps.append(f"Resolve {len(open_paths)} critical attack path(s) before any compliance claim is valid")
+    if any("secret_access" in f.tags for f in open_findings):
         priority_gaps.append("Restrict agent access to secrets -- this is a mandatory RBI and DPDP control")
-    if any("mcp-auth" in f.tags for f in result.reportable_findings):
+    if any("mcp-auth" in f.tags for f in open_findings):
         priority_gaps.append("Add authentication to all MCP servers -- required under RBI AI-ACT&RS and ISO 42001")
     if not priority_gaps:
         priority_gaps.append("Run the DPIA module to generate the required Data Protection Impact Assessment")
@@ -402,4 +457,5 @@ def map_findings_to_controls(result: ScanResult) -> ComplianceReport:
         control_summary={fw: len(ids) for fw, ids in framework_control_counts.items()},
         overall_posture=posture,
         priority_gaps=priority_gaps[:3],
+        resolved_mappings=resolved_mappings,
     )

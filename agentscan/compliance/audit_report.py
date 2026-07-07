@@ -125,7 +125,7 @@ def generate_audit_report(
     output_path: str,
     agent_name: str = "AI Agent",
     organisation: str = "Organisation",
-    assessor: str = "AgentScan",
+    assessor: str = "Lattice",
     include_dpia: bool = True,
 ) -> str:
     """Generate a PDF audit report. Returns the output path."""
@@ -145,8 +145,8 @@ def generate_audit_report(
         pagesize=A4,
         leftMargin=20*mm, rightMargin=20*mm,
         topMargin=20*mm, bottomMargin=20*mm,
-        title=f"AgentScan Compliance Audit Report -- {agent_name}",
-        author="AgentScan",
+        title=f"Lattice Compliance Audit Report -- {agent_name}",
+        author="Lattice",
     )
 
     S = _styles()
@@ -159,7 +159,10 @@ def generate_audit_report(
     # -- COVER PAGE -----------------------------------------------------------
     cover_table = Table([[
         Table([
-            [Paragraph("AgentScan", S["cover_title"])],
+            [Paragraph("Lattice", S["cover_title"])],
+            [Paragraph("Find the shortest path to what matters.", ParagraphStyle(
+                "tagline", fontSize=10, textColor=colors.HexColor("#8ab4d8"),
+                fontName="Helvetica-Oblique", leading=13, spaceAfter=4))],
             [Paragraph("AI Agent Security &amp; Compliance Audit Report", S["cover_sub"])],
             [Spacer(1, 8*mm)],
             [Paragraph(f"<b>Agent:</b> {_esc(agent_name)}", S["cover_sub"])],
@@ -434,10 +437,16 @@ def generate_audit_report(
     ]
     ctrl_rows = [ctrl_header]
 
+    _evidence_labels = {
+        "present": ("Present", GREEN_DARK),
+        "accepted": ("Accepted Risk", colors.HexColor("#2d6a2d")),
+        "not-applicable": ("Not Applicable (FP)", colors.HexColor("#1a4fa0")),
+        "remediated": ("Remediated", colors.HexColor("#7c5fc4")),
+    }
+
     for mapping in compliance_report.mappings:
         for ctrl in mapping.controls:
-            evidence_text = "Present" if ctrl.evidence_status == "present" else "Not found"
-            evidence_color = GREEN_DARK if ctrl.evidence_status == "present" else RED_DARK
+            evidence_text, evidence_color = _evidence_labels.get(ctrl.evidence_status, ("Not Found", RED_DARK))
             level_text = ctrl.requirement_level.upper()
             level_color = RED_DARK if ctrl.requirement_level == "mandatory" else ORANGE
             owner_deadline = f"Owner: {_esc(ctrl.owner)}<br/>Deadline: {_esc(ctrl.deadline)}"
@@ -467,12 +476,57 @@ def generate_audit_report(
     ]))
     story.append(ctrl_table)
 
+    # -- RESOLVED CONTROLS (dispositioned findings, kept visible for audit trail)
+    resolved_mappings = getattr(compliance_report, "resolved_mappings", None) or []
+    if resolved_mappings:
+        story.append(Spacer(1, 5*mm))
+        story.append(Paragraph("Resolved Controls (Reviewed and Dispositioned)", S["section_head"]))
+        story.append(HRFlowable(width=W, thickness=1, color=TEAL, spaceAfter=6))
+        story.append(Paragraph(
+            "Controls below were implicated by findings that have since been reviewed and "
+            "dispositioned (accepted with compensating controls, confirmed false positive, or "
+            "already remediated). They are excluded from the compliance score above but shown "
+            "here for a complete audit trail -- see the Risk Acceptance Register for full detail.",
+            S["body"],
+        ))
+        story.append(Spacer(1, 2*mm))
+
+        resolved_rows = [ctrl_header]
+        for mapping in resolved_mappings:
+            for ctrl in mapping.controls:
+                evidence_text, evidence_color = _evidence_labels.get(ctrl.evidence_status, ("Not Found", RED_DARK))
+                level_text = ctrl.requirement_level.upper()
+                level_color = RED_DARK if ctrl.requirement_level == "mandatory" else ORANGE
+                owner_deadline = f"Owner: {_esc(ctrl.owner)}<br/>Deadline: {_esc(ctrl.deadline)}"
+                resolved_rows.append([
+                    Paragraph(ctrl.framework, S["small"]),
+                    Paragraph(ctrl.control_id, ParagraphStyle("cid2", fontSize=7, textColor=BLUE,
+                                                               fontName="Helvetica-Bold", leading=10)),
+                    Paragraph(ctrl.control_name, S["small"]),
+                    Paragraph(_esc(mapping.finding_title[:60]), S["small"]),
+                    Paragraph(f'<font color="{evidence_color}">{_esc(evidence_text)}</font>', S["small"]),
+                    Paragraph(owner_deadline, S["small"]),
+                    Paragraph(f'<font color="{level_color}">{_esc(level_text)}</font>', S["small"]),
+                    Paragraph(ctrl.obligation[:140], S["small"]),
+                ])
+
+        resolved_table = Table(resolved_rows, colWidths=[20*mm, 18*mm, 30*mm, 28*mm, 18*mm, 25*mm, 16*mm, 35*mm])
+        resolved_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4a7c6f")),
+            ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
+            ("PADDING", (0, 0), (-1, -1), 4),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f2f7f5")]),
+            ("FONTSIZE", (0, 1), (-1, -1), 7),
+        ]))
+        story.append(resolved_table)
+
     # -- DPDP GAPS ------------------------------------------------------------
     story.append(Spacer(1, 6*mm))
     story.append(Paragraph("DPDP Act -- Items Requiring Manual Review", S["section_head"]))
     story.append(HRFlowable(width=W, thickness=1, color=TEAL, spaceAfter=6))
     story.append(Paragraph(
-        "AgentScan covers security safeguards. The following DPDP obligations require "
+        "Lattice covers security safeguards. The following DPDP obligations require "
         "manual review by your privacy/legal team and cannot be assessed by static scanning.",
         S["body"]
     ))
@@ -555,7 +609,7 @@ def generate_audit_report(
     story.append(Paragraph("Sign-Off and Attestation", S["section_head"]))
     story.append(HRFlowable(width=W, thickness=1, color=BLUE, spaceAfter=6))
     story.append(Paragraph(
-        "This report was generated by AgentScan on the basis of static configuration analysis. "
+        "This report was generated by Lattice on the basis of static configuration analysis. "
         "It does not constitute a legal compliance opinion. Regulated entities must obtain appropriate "
         "legal and technical advice before making compliance attestations to regulators.",
         S["small"]
@@ -582,7 +636,7 @@ def generate_audit_report(
     story.append(signoff_table)
     story.append(Spacer(1, 4*mm))
     story.append(Paragraph(
-        f"Generated by AgentScan v{__version__}  -  {date.today().isoformat()}  -  "
+        f"Generated by Lattice v{__version__}  -  {date.today().isoformat()}  -  by sneh with sneh <3  -  "
         "github.com/sneh2105/agentscan  -  Apache 2.0",
         ParagraphStyle("footer", fontSize=7, textColor=MID_GREY, alignment=TA_CENTER)
     ))

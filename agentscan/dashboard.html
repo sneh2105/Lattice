@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AgentScan</title>
+<title>Lattice</title>
 <style>
 :root{--bg:#0d1117;--surface:#161b22;--s2:#1c2230;--border:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#58a6ff;--red:#f85149;--orange:#e3b341;--green:#3fb950;--purple:#bc8cff;--radius:8px;--mono:'Cascadia Code','Fira Code',Consolas,monospace}
 *{box-sizing:border-box;margin:0;padding:0}html,body{height:100%}
@@ -152,8 +152,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 </head>
 <body>
 <div class="topbar">
-  <div class="logo">AgentScan</div>
-  <div class="logo-sub">AI Agent Security</div>
+  <div class="logo">Lattice</div>
+  <div class="logo-sub">Find the shortest path to what matters.</div>
   <div class="ts"></div>
   <div class="vbadge" id="ver">v0.2.9</div>
 </div>
@@ -216,13 +216,14 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     <div class="sb-label">Recent scans</div>
     <div id="hist-list"><div class="hint" style="text-align:center;padding:10px 0">No scans yet</div></div>
   </div>
+  <div style="padding:10px 14px;text-align:center;font-size:10px;color:var(--muted);border-top:1px solid var(--border)">by sneh with sneh &lt;3</div>
 </div>
 
 <div class="content" id="content">
   <div class="welcome">
     <div class="welcome-icon">&#128737;</div>
     <h2>Find attack paths before attackers do</h2>
-    <p>Upload files, paste a GitHub URL, or enter a path.<br>AgentScan auto-detects the type and builds the full attack chain.</p>
+    <p>Upload files, paste a GitHub URL, or enter a path.<br>Lattice auto-detects the type and builds the full attack chain.</p>
     <div class="wcards">
       <div class="wcard"><div class="wcard-n">Source code</div><div class="wcard-t">Python agents</div><div class="wcard-d">LangChain, CrewAI, AutoGen, PydanticAI, LlamaIndex + 12 more</div></div>
       <div class="wcard"><div class="wcard-n">Config files</div><div class="wcard-t">YAML / JSON</div><div class="wcard-d">Agent configs, Dify, n8n, Flowise, MCP manifests</div></div>
@@ -918,7 +919,7 @@ window.copyJSON = copyJSON;
 function copyMarkdown(){
   if(!curResult)return;
   var d=curResult;
-  var md='# AgentScan Security Report\n\n';
+  var md='# Lattice Security Report\n\n';
   md+='**Target:** '+(curTarget||'')+'  \n';
   md+='**Risk Score:** '+(d.risk_score||0)+'/100  \n';
   md+='**Scanner:** '+(d.type||d.scanner_type||'')+'  \n\n';
