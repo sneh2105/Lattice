@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentscan"
-version = "0.4.7"
+version = "0.4.8"
 description = "Security scanner for AI agents, MCP servers, and AI supply chain artifacts — with attack graph engine and compliance reporting"
 readme = "README.md"
 license = { text = "Apache-2.0" }

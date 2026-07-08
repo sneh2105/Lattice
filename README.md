@@ -267,13 +267,17 @@ Manifest-aware mode reads `requirements.txt`, `package.json`, or
 
 | Document | What's in it |
 |---|---|
+| [`DESIGN.md`](DESIGN.md) | Why Lattice exists and the positions it deliberately takes -- read this before anything else if you're evaluating the project's judgment, not just its feature list |
 | [`THREAT_MODEL.md`](THREAT_MODEL.md) | The precise attacker model, what's in/out of scope, Lattice's own attack surface |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Pipeline overview, module map, key design decisions and why |
+| [`INTERMEDIATE_REPRESENTATION.md`](INTERMEDIATE_REPRESENTATION.md) | The Finding/AttackPath/ScanResult model every framework normalizes into |
 | [`DETECTION.md`](DETECTION.md) | Exact detection methodology -- capability taxonomy, attack chain rules, AST behavioral detection, scoring math |
+| [`rfcs/`](rfcs/) | Engineering design decisions: capability model, attack graph, risk engine, trust flow -- what's built, what's proposed, and why |
 | [`CLI_REFERENCE.md`](CLI_REFERENCE.md) | Every command, every flag |
 | [`BENCHMARKS.md`](BENCHMARKS.md) | Current benchmark results, adversarial test coverage, test suite breakdown |
 | [`ROADMAP.md`](ROADMAP.md) | What's stable, what's in progress, what's explicitly not planned and why |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to add framework support, extend detection, add compliance frameworks |
+| [`EXTENDING.md`](EXTENDING.md) | Step-by-step guide to adding a new framework |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to contribute, PR checklist, code standards |
 | [`SECURITY.md`](SECURITY.md) | How to report a vulnerability in Lattice itself |
 
 ## Status

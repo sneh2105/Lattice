@@ -182,3 +182,30 @@ def test_graph_all_paths_have_nodes():
     assert len(data["paths"]) > 0, "Dangerous agent should have attack paths"
     for path in data["paths"]:
         assert len(path["nodes"]) > 0, f"Path '{path['title']}' has no nodes"
+
+
+def test_attack_path_steps_are_same_finding_objects_as_scan_result():
+    """
+    AttackPath.steps must hold the SAME Finding objects (by identity) as
+    ScanResult.findings, not copies. This is what makes annotate_finding_objects()
+    mutating .status in place automatically consistent across Findings tab,
+    Attack Graph, and Compliance/PDF -- there is no second data structure
+    that could fall out of sync. See INTERMEDIATE_REPRESENTATION.md.
+    """
+    from agentscan.scanners.agent_scanner import scan_agent_config
+
+    result = scan_agent_config("examples/agent_configs/dangerous_agent.yaml")
+    assert result.attack_paths, "fixture must produce at least one attack path"
+
+    findings_by_id = {f.id: f for f in result.findings}
+    checked_any = False
+    for path in result.attack_paths:
+        for step in path.steps:
+            assert step.id in findings_by_id
+            assert step is findings_by_id[step.id], (
+                f"AttackPath step '{step.id}' is a different object than the "
+                f"corresponding entry in result.findings -- mutating one would "
+                f"not be visible through the other"
+            )
+            checked_any = True
+    assert checked_any, "no attack path steps were checked -- fixture may be broken"
