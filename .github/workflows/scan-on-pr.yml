@@ -1,8 +1,10 @@
 # Scan agent code and configs in PRs automatically.
 # GitHub-native: triggers on every PR, comments findings, uploads SARIF to the Security tab.
-name: AgentScan PR Check
+name: Lattice Security Scan
 
 on:
+  push:
+    branches: [main]
   pull_request:
     paths:
       - "**/*.py"
@@ -29,7 +31,7 @@ jobs:
       # Once published: replace with `pip install agentscan`.
       - run: pip install -e .
 
-      - name: Doctor — confirm what AgentScan can see in this repo
+      - name: Doctor -- confirm what Lattice can see in this repo
         run: agentscan doctor .
 
       - name: Scan the full checkout (source code, not just changed files)
@@ -37,10 +39,15 @@ jobs:
           agentscan source . --output sarif --output-file results.sarif || true
 
       - name: Scan any changed YAML/JSON agent configs
+        if: github.event_name == 'pull_request'
         run: |
-          git diff --name-only origin/${{ github.base_ref }}...HEAD | \
-            grep -E '\.(yaml|yml|json)$' | \
-            xargs -I{} agentscan agent {} --output sarif --output-file scan-{}.sarif || true
+          set +o pipefail
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '\.(yaml|yml|json)$' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "No changed YAML/JSON agent configs in this PR -- skipping."
+          else
+            echo "$CHANGED" | xargs -I{} agentscan agent {} --output sarif --output-file scan-{}.sarif || true
+          fi
 
       - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
