@@ -23,7 +23,6 @@ from typing import Any
 from agentscan.graph.nodes import (
     Node, Edge, NodeType, EdgeType,
     ATTACKER_ENTRY_NODES, CROWN_JEWEL_NODES,
-    CROWN_JEWEL_VALUE,
 )
 from agentscan.models import ScanResult, Severity, AttackPath, Finding, Evidence, ConfidenceLevel
 
@@ -94,18 +93,6 @@ class AttackGraph:
         """Opt-in helper: add one of the known CROWN_JEWEL_NODES by id."""
         if node_id in CROWN_JEWEL_NODES and node_id not in self.nodes:
             self.add_node(CROWN_JEWEL_NODES[node_id])
-
-    def prune_disconnected_nodes(self) -> None:
-        """Remove any node with zero edges (no in-edge and no out-edge).
-        Used by build_graph_from_scan so a rendered graph never shows a
-        floating node that no actual finding/attack path reached."""
-        connected = set()
-        for e in self.edges:
-            connected.add(e.src)
-            connected.add(e.dst)
-        for nid in list(self.nodes.keys()):
-            if nid not in connected:
-                del self.nodes[nid]
 
     def add_node(self, node: Node) -> None:
         self.nodes[node.id] = node

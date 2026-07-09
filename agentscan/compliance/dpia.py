@@ -18,7 +18,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from agentscan.models import ScanResult, Severity
-from agentscan.compliance.framework_mapper import map_findings_to_controls
 
 
 @dataclass
@@ -47,7 +46,6 @@ def generate_dpia(result: ScanResult, agent_name: str = "AI Agent", assessor: st
     Generate a DPIA document from scan results.
     Sections follow the structure expected by DPDP auditors and ISO 42001 Clause 8.7.
     """
-    compliance_report = map_findings_to_controls(result)
     from agentscan.risk_register import filter_by_disposition, annotate_findings, compute_governed_score
     disposition = filter_by_disposition(result)
     open_findings_objs = disposition["open_findings"]

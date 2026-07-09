@@ -2,11 +2,11 @@
 """Runtime, prompt flow, and identity CLI commands."""
 
 from __future__ import annotations
-import agentscan._compat  # force UTF-8 on Windows
-import json, sys
+import json
+import sys
 from pathlib import Path
 
-from agentscan.outputs.terminal import _col, BOLD, CYAN, RED, ORANGE, GREEN, DIM, YELLOW, RESET, BLUE
+from agentscan.outputs.terminal import _col, BOLD, CYAN, RED, ORANGE, GREEN, DIM, YELLOW
 from agentscan.models import Severity
 
 
@@ -127,7 +127,6 @@ def cmd_runtime_analyse(args):
 
 
 def _render_runtime(report, args):
-    from agentscan.runtime.analyser import RuntimeAnalysisReport
     print(f"\n  {_col(BOLD+CYAN, 'Runtime Analysis')} -- session {report.session_id}\n")
     print(f"  Agent: {report.agent_id}")
     print(f"  Events: {report.event_count}  Duration: {report.duration_ms}ms")
@@ -202,7 +201,6 @@ def cmd_prompt_flow(args):
 
 
 def _render_prompt_flow(report):
-    from agentscan.runtime.prompt_flow import PromptFlowReport
     print(f"\n  {_col(BOLD+CYAN, 'Prompt Flow Analysis')}\n")
     print(f"  {report.summary}\n")
 
@@ -241,7 +239,7 @@ def _render_prompt_flow(report):
 def cmd_identity(args):
     """Build and display agent identity graph."""
     from agentscan.scanners.agent_scanner import scan_agent_config
-    from agentscan.identity.agent_identity import identity_graph_from_scan, build_identity_graph
+    from agentscan.identity.agent_identity import identity_graph_from_scan
 
     if args.config:
         result = scan_agent_config(args.config)
@@ -255,7 +253,6 @@ def cmd_identity(args):
 
 
 def _render_identity(ig):
-    from agentscan.identity.agent_identity import AgentIdentityGraph
     rc = _risk_col(ig.risk_score)
 
     print(f"\n  {_col(BOLD+CYAN, 'Agent Identity Graph')} -- {ig.agent_name}\n")
@@ -318,7 +315,7 @@ def _render_identity(ig):
             print(f"  {_col(DIM, f.explanation[:200])}")
             print(f"  {_col(GREEN, 'Fix:')} {f.remediation[:160]}\n")
 
-    print(_col(DIM, f"  AgentScan v0.3.0 - identity graph\n"))
+    print(_col(DIM, "  AgentScan v0.3.0 - identity graph\n"))
 
 
 def add_runtime_parser(subparsers):

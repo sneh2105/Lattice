@@ -37,21 +37,17 @@ Architecture:
 """
 
 from __future__ import annotations
-import json
 import time
-from dataclasses import dataclass, field
-from collections import defaultdict, deque
-from pathlib import Path
-from typing import Any
+from dataclasses import dataclass
+from collections import defaultdict
 
-import yaml
 
 from agentscan.models import (
-    ScanResult, Finding, AttackPath, Evidence, Severity, ConfidenceLevel
+    Finding, Evidence, Severity, ConfidenceLevel
 )
 from agentscan.scanners.mcp_scanner_v2 import scan_mcp_v2, MCPServerProfile
-from agentscan.graph.engine import AttackGraph, build_graph_from_scan, graph_paths_to_attack_paths
-from agentscan.graph.nodes import Node, Edge, NodeType, EdgeType
+from agentscan.graph.engine import AttackGraph
+from agentscan.graph.nodes import Node, Edge, EdgeType
 
 
 # -- Trust propagation rules --------------------------------------------------
@@ -365,7 +361,7 @@ class MCPTrustChain:
                     adj[src].append(dst)
 
         # Detect cycles first
-        cycles = self._detect_cycles(adj)
+        self._detect_cycles(adj)
 
         # BFS propagation -- propagate from leaves upward
         # For each server, compute effective trust from all dependencies
@@ -381,7 +377,7 @@ class MCPTrustChain:
                     dst_effective = results[dst_name].effective_trust
                     propagated = dst_effective - TRUST_HOP_PENALTY
                     if propagated < results[src_name].effective_trust:
-                        old = results[src_name].effective_trust
+                        results[src_name].effective_trust
                         results[src_name].effective_trust = max(0, propagated)
                         results[src_name].trust_reduction = (
                             results[src_name].declared_trust - results[src_name].effective_trust
@@ -430,7 +426,7 @@ class MCPTrustChain:
         cross_paths: list[CrossServerPath] = []
         graph_paths = unified_graph.find_attack_paths()
 
-        id_to_name = {v: k for k, v in self._id_map.items()}
+        {v: k for k, v in self._id_map.items()}
 
         for gp in graph_paths:
             # Check if path crosses server boundaries

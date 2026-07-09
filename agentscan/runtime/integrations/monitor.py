@@ -17,16 +17,13 @@ Output options:
 """
 
 from __future__ import annotations
-import agentscan._compat  # force UTF-8 on Windows
 
 import json
-import os
 import sys
-import time
 import threading
 import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generator
 
@@ -34,7 +31,7 @@ from agentscan.runtime.events import (
     AgentSession, RuntimeEvent, EventType,
     llm_request, llm_response, tool_call, tool_result,
     network_call, file_access, secret_access, process_spawn,
-    memory_read, memory_write, db_query,
+    memory_read, db_query,
 )
 from agentscan.runtime.analyser import RuntimeAnalyser, RuntimeAnalysisReport
 from agentscan.models import Severity

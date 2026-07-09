@@ -13,9 +13,8 @@ Zero side effects -- read-only detection, no scanning performed here.
 """
 
 from __future__ import annotations
-import agentscan._compat  # force UTF-8 on Windows
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -247,7 +246,7 @@ def run_doctor(path: str = ".") -> list[DetectionResult]:
 
 
 def render_doctor_report(results: list[DetectionResult]) -> str:
-    RED, ORANGE, GREEN, DIM, BOLD, CYAN, RESET = (
+    _RED, ORANGE, GREEN, DIM, BOLD, CYAN, RESET = (
         "\033[91m", "\033[33m", "\033[92m", "\033[2m", "\033[1m", "\033[96m", "\033[0m"
     )
     import sys

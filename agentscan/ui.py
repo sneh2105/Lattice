@@ -8,12 +8,8 @@ Opens a local web interface so you can scan without memorizing CLI commands.
 No server, no cloud, no accounts. Runs on localhost, shuts down when you close it.
 """
 from __future__ import annotations
-import json
-import os
-import sys
 import threading
 import time
-from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
@@ -1002,7 +998,8 @@ def run_ui(port: int = 0, open_browser: bool = True):
     if open_browser:
         def _open():
             time.sleep(0.8)
-            import subprocess, sys
+            import subprocess
+            import sys
             try:
                 if sys.platform == "win32":
                     subprocess.Popen(["cmd", "/c", "start", "", url], shell=False,

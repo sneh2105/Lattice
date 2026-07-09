@@ -14,7 +14,6 @@ Import this at the top of cli.py -- the reconfigure call is a side effect
 that runs once when the package is first imported.
 """
 from __future__ import annotations
-import os
 import sys
 
 

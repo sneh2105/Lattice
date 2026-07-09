@@ -16,7 +16,6 @@ import time
 import urllib.request
 import urllib.error
 from pathlib import Path
-from typing import Any
 
 import yaml
 

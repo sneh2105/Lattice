@@ -18,9 +18,8 @@ Answers:
 from __future__ import annotations
 import re
 from dataclasses import dataclass, field
-from typing import Any
 
-from agentscan.runtime.events import AgentSession, RuntimeEvent, EventType
+from agentscan.runtime.events import AgentSession, EventType
 from agentscan.runtime.analyser import INJECTION_PATTERNS, SECRET_PATTERNS, json_flatten
 from agentscan.models import Finding, Evidence, Severity, ConfidenceLevel
 
@@ -279,7 +278,7 @@ class PromptFlowAnalyser:
     def analyse_static(self, system_prompt: str = "", tools: list[str] = None,
                        has_rag: bool = False, has_memory: bool = False) -> PromptFlowReport:
         """Static analysis without a runtime session."""
-        nodes, edges, findings = [], [], []
+        nodes, _edges, findings = [], [], []
         injection_reach, secret_locations = [], []
 
         # System prompt analysis

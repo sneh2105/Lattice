@@ -23,7 +23,7 @@ from typing import Any
 from agentscan.runtime.events import (
     AgentSession, RuntimeEvent, EventType,
 )
-from agentscan.models import Finding, Evidence, Severity, ConfidenceLevel, AttackPath, ScanResult
+from agentscan.models import Finding, Evidence, Severity, ConfidenceLevel
 
 
 # -- Detection rules -----------------------------------------------------------
@@ -372,7 +372,7 @@ class RuntimeAnalyser:
                     if later_tools:
                         findings.append(RuntimeFinding(
                             id=f"RT-INDIRECT-INJECT-{label[:12].upper().replace(' ','-')}",
-                            title=f"Indirect prompt injection via tool result -> subsequent tool call",
+                            title="Indirect prompt injection via tool result -> subsequent tool call",
                             severity=Severity.CRITICAL,
                             confidence=ConfidenceLevel.HIGH,
                             explanation=(

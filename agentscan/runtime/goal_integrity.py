@@ -32,8 +32,7 @@ Three detection mechanisms:
 
 from __future__ import annotations
 import re
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 from agentscan.runtime.events import AgentSession, RuntimeEvent, EventType
 from agentscan.models import Finding, Evidence, Severity, ConfidenceLevel

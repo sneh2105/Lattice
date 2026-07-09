@@ -62,7 +62,7 @@ class AgentScanAutoGenHook:
             """Intercepts every message exchange."""
             if messages:
                 # Log the incoming messages as LLM request
-                sender_name = getattr(sender, "name", "user") if sender else "user"
+                getattr(sender, "name", "user") if sender else "user"
                 model = getattr(getattr(recipient, "llm_config", None), "get", lambda k, d: d)("model", "gpt-4")
                 monitor.log_llm_request(
                     model=str(model),

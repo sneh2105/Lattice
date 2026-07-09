@@ -7,13 +7,10 @@ Designed to be screenshot-worthy and shareable.
 from __future__ import annotations
 from agentscan import __version__
 import sys
-import agentscan._compat  # force UTF-8 on Windows
 from agentscan._compat import (
-    SYM_OK, SYM_FAIL, SYM_WARN, SYM_CRITICAL, SYM_HIGH, SYM_MEDIUM, SYM_INFO,
-    SYM_BLOCK_FULL, SYM_BLOCK_EMPTY, SYM_BULLET, SYM_ARROW,
-    BOX_TL, BOX_TR, BOX_BL, BOX_BR, BOX_SIDE, BOX_LINE, DASH, _supports_unicode
+    SYM_OK, SYM_FAIL, SYM_CRITICAL, SYM_BLOCK_FULL, SYM_BLOCK_EMPTY, SYM_BULLET, BOX_TL, BOX_TR, BOX_BL, BOX_BR, BOX_SIDE, BOX_LINE
 )
-from agentscan.models import AttackPath, Finding, ScanResult, Severity, ConfidenceLevel
+from agentscan.models import ScanResult, Severity
 
 # ANSI colours
 RED = "\033[91m"
@@ -67,7 +64,6 @@ def _hr(width: int = 70, char: str = "-") -> str:
 
 def render_result(result: ScanResult, verbose: bool = False) -> str:
     lines: list[str] = []
-    w = 70
 
     # -- Header ----------------------------------------------------------
     lines.append("")
@@ -96,7 +92,7 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
 
     bar_filled = int(score / 5)
     bar = SYM_BLOCK_FULL * bar_filled + SYM_BLOCK_EMPTY * (20 - bar_filled)
-    lines.append(_col(BOLD, f"  Risk score  ") + _col(score_col, f"{score:3d}/100  ") + _col(score_col, bar))
+    lines.append(_col(BOLD, "  Risk score  ") + _col(score_col, f"{score:3d}/100  ") + _col(score_col, bar))
     lines.append("")
 
     # -- Finding counts ---------------------------------------------------
@@ -184,7 +180,7 @@ def render_result(result: ScanResult, verbose: bool = False) -> str:
                 lines.append(_col(DIM, f"  CWE: {', '.join(finding.cwe)}"))
 
             lines.append("")
-            lines.append(_col(DIM, f"  " + SYM_BULLET * 66))
+            lines.append(_col(DIM, "  " + SYM_BULLET * 66))
             lines.append("")
 
     # -- Metadata --------------------------------------------------------

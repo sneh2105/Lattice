@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """AgentScan CLI v0.3.0"""
 from __future__ import annotations
-import agentscan._compat   # force UTF-8 stdout/stderr before any output -- Windows fix
-import argparse, sys
+import argparse
+import sys
 from pathlib import Path
 
 from agentscan.scanners.agent_scanner import scan_agent_config
@@ -36,7 +36,12 @@ def _serve_and_open(html_path: str) -> None:
     Starts a one-shot HTTP server, opens the browser, then shuts down
     after the first request is served.
     """
-    import http.server, threading, socket, sys, subprocess, time
+    import http.server
+    import threading
+    import socket
+    import sys
+    import subprocess
+    import time
     from pathlib import Path
 
     html_path = str(Path(html_path).resolve())
@@ -98,7 +103,8 @@ def _open_in_browser(uri: str) -> None:
         _serve_and_open(local_path)
     else:
         # Already an http URL, just open directly
-        import subprocess, sys
+        import subprocess
+        import sys
         try:
             if sys.platform == "win32":
                 subprocess.Popen(["cmd", "/c", "start", "", uri], shell=False,

@@ -25,10 +25,9 @@ Usage:
 """
 
 from __future__ import annotations
-from typing import Any, Union
-from uuid import UUID
+from typing import Any
 
-from agentscan.runtime.integrations.monitor import AgentScanMonitor, MonitorConfig, agentscan_trace
+from agentscan.runtime.integrations.monitor import AgentScanMonitor, MonitorConfig
 from agentscan.runtime.analyser import RuntimeAnalysisReport
 
 

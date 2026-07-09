@@ -18,9 +18,8 @@ import time
 import hashlib
 import urllib.request
 import urllib.error
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import yaml
 
@@ -273,7 +272,6 @@ def _build_mcp_graph(
     has_auth: bool,
 ) -> AttackGraph:
     """Build an AttackGraph for this MCP server."""
-    from agentscan.graph.engine import build_graph_from_scan
 
     # Build a minimal ScanResult to feed to graph builder
     caps = list({cap for t in tools for cap in t.capabilities})
@@ -485,7 +483,6 @@ def scan_mcp_v2(target: str, timeout: int = 10) -> tuple[MCPServerProfile, ScanR
 
     # Build graph
     graph = _build_mcp_graph(server_name, server_id, tool_analyses, has_auth)
-    from agentscan.graph.engine import build_graph_from_scan
     paths = graph.find_attack_paths()
 
     # Collect all findings

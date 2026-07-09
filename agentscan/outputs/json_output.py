@@ -4,7 +4,7 @@
 from __future__ import annotations
 from agentscan import __version__
 import json
-from agentscan.models import Finding, ScanResult
+from agentscan.models import ScanResult
 
 
 def to_dict(result: ScanResult) -> dict:

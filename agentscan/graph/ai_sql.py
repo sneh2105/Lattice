@@ -31,8 +31,7 @@ language completeness.
 
 from __future__ import annotations
 import re
-import shlex
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from agentscan.graph.engine import AttackGraph
@@ -89,8 +88,8 @@ class AISQLEngine:
             else:
                 return QueryResult(
                     query=query_str, query_type="unknown", success=False, rows=[],
-                    error=f"Unrecognised query type. Supported: FIND, PATH FROM...TO, "
-                          f"REACHABLE FROM, CAN...ACCESS, BLAST RADIUS OF, TRUST OF, COUNT",
+                    error="Unrecognised query type. Supported: FIND, PATH FROM...TO, "
+                          "REACHABLE FROM, CAN...ACCESS, BLAST RADIUS OF, TRUST OF, COUNT",
                 )
         except AISQLError as e:
             return QueryResult(query=query_str, query_type="error", success=False, rows=[], error=str(e))
@@ -150,8 +149,8 @@ class AISQLEngine:
         return conditions
 
     def _matches_conditions(self, node: Node, conditions: list[tuple[str, str, str]]) -> bool:
-        for field, op, value in conditions:
-            if field == "reachable_from":
+        for field_name, op, value in conditions:
+            if field_name == "reachable_from":
                 reachable = self.graph.reachable_from(value)
                 is_reachable = node.id in reachable
                 target_val = "true" if is_reachable else "false"
@@ -161,38 +160,38 @@ class AISQLEngine:
                 if op == "=" and not is_reachable:
                     return False
                 continue
-            node_val = self._get_node_field(node, field)
+            node_val = self._get_node_field(node, field_name)
             if node_val is None:
                 return False
             if not self._compare(node_val, op, value):
                 return False
         return True
 
-    def _get_node_field(self, node: Node, field: str) -> Any:
-        if field == "capability":
+    def _get_node_field(self, node: Node, field_name: str) -> Any:
+        if field_name == "capability":
             return node.properties.get("capability", "")
-        if field == "label":
+        if field_name == "label":
             return node.label
-        if field == "type":
+        if field_name == "type":
             return node.type.value
-        if field == "scoped":
+        if field_name == "scoped":
             return str(node.scoped if hasattr(node, "scoped") else "").lower()
-        if field == "attacker_controlled":
+        if field_name == "attacker_controlled":
             return str(node.attacker_controlled).lower()
-        if field == "is_crown_jewel":
+        if field_name == "is_crown_jewel":
             return str(node.is_crown_jewel).lower()
-        if field == "crown_jewel_value":
+        if field_name == "crown_jewel_value":
             return node.crown_jewel_value
-        if field == "reachable_from":
+        if field_name == "reachable_from":
             # Special handled in _matches_conditions directly -- placeholder
             return None
-        if field == "severity":
+        if field_name == "severity":
             # Inferred from crown_jewel_value
             if node.crown_jewel_value >= 80: return "CRITICAL"
             if node.crown_jewel_value >= 50: return "HIGH"
             if node.crown_jewel_value >= 20: return "MEDIUM"
             return "LOW"
-        return node.properties.get(field)
+        return node.properties.get(field_name)
 
     def _compare(self, node_val: Any, op: str, value: str) -> bool:
         node_str = str(node_val).lower()

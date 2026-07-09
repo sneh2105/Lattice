@@ -9,7 +9,6 @@ agentscan compliance audit <scan_target>    Generate full PDF audit report
 
 from __future__ import annotations
 from agentscan import __version__
-import argparse
 import json
 import sys
 from pathlib import Path
@@ -20,7 +19,7 @@ from agentscan.scanners.mcp_scanner import scan_mcp
 from agentscan.compliance.framework_mapper import map_findings_to_controls
 from agentscan.compliance.dpia import generate_dpia
 from agentscan.compliance.audit_report import generate_audit_report
-from agentscan.outputs.terminal import _col, BOLD, CYAN, GREEN, ORANGE, RED, DIM, RESET, BLUE
+from agentscan.outputs.terminal import _col, BOLD, CYAN, GREEN, ORANGE, RED, DIM, BLUE
 
 
 def _detect_scanner(target: str):
@@ -40,7 +39,8 @@ def _detect_scanner(target: str):
     path = Path(target)
     # Sniff content to decide agent vs mcp
     try:
-        import json, yaml
+        import json
+        import yaml
         text = path.read_text()
         data = yaml.safe_load(text) if path.suffix in ('.yaml', '.yml') else json.loads(text)
         if isinstance(data, dict) and "tools" in data and any(
@@ -142,7 +142,7 @@ def cmd_audit(args):
         sys.exit(1)
 
     output = args.output_file or f"agentscan_audit_{Path(args.target).stem}.pdf"
-    print(f"Generating audit report...")
+    print("Generating audit report...")
     path = generate_audit_report(
         result,
         output_path=output,
@@ -155,7 +155,7 @@ def cmd_audit(args):
     print(f"  Risk score    : {result.risk_score()}/100")
     print(f"  Findings      : {len(result.reportable_findings)}")
     print(f"  Attack paths  : {len(result.attack_paths)}")
-    print(f"  Frameworks    : RBI - DPDP - SEBI - ISO 42001 - EU AI Act - SOC 2")
+    print("  Frameworks    : RBI - DPDP - SEBI - ISO 42001 - EU AI Act - SOC 2")
 
 
 def add_compliance_parser(subparsers):

@@ -19,7 +19,7 @@ are implicated by the findings in a scan result.
 from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
-from agentscan.models import ScanResult, Severity
+from agentscan.models import ScanResult
 
 
 @dataclass

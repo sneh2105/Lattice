@@ -24,9 +24,7 @@ import time
 import urllib.request
 import urllib.error
 import urllib.parse
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 from agentscan.models import ConfidenceLevel, Evidence, Finding, ScanResult, Severity
 
@@ -271,7 +269,7 @@ def _scan_pypi(package_name: str) -> ScanResult:
     project_urls = info.get("project_urls") or {}
     requires_dist = info.get("requires_dist") or []
     version = info.get("version", "unknown")
-    classifiers = info.get("classifiers", [])
+    info.get("classifiers", [])
 
     # No source link -- case-insensitive key lookup (PyPI returns lowercase keys)
     def _get_url(d: dict, *keys) -> str:
@@ -367,7 +365,7 @@ def _scan_npm(package_name: str) -> ScanResult:
 
     latest_tag = meta.get("dist-tags", {}).get("latest", "")
     latest_version = meta.get("versions", {}).get(latest_tag, {})
-    description = meta.get("description", "")
+    meta.get("description", "")
     homepage = meta.get("homepage", "")
     repository = meta.get("repository", {})
     maintainers = meta.get("maintainers", [])
@@ -480,7 +478,7 @@ def _scan_hf_model(repo_id: str) -> ScanResult:
     tags = meta.get("tags", [])
     card_data = meta.get("cardData", {}) or {}
     siblings = meta.get("siblings", [])
-    private = meta.get("private", False)
+    meta.get("private", False)
 
     # File analysis
     has_safetensors = any(s.get("rfilename","").endswith(".safetensors") for s in siblings)
@@ -583,7 +581,7 @@ def _scan_hf_dataset(repo_id: str) -> ScanResult:
 
     author = meta.get("author", repo_id.split("/")[0] if "/" in repo_id else "unknown")
     likes = meta.get("likes", 0)
-    card_data = meta.get("cardData", {}) or {}
+    meta.get("cardData", {}) or {}
     siblings = meta.get("siblings", [])
 
     # Try to fetch a sample from dataset viewer API

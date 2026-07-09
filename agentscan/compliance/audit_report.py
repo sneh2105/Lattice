@@ -54,7 +54,7 @@ def _esc(s) -> str:
         return ""
     return (str(s).replace("&", "&amp;").replace("<", "&lt;")
             .replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;"))
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER
 
 from agentscan.models import ScanResult, Severity
 from agentscan.compliance.framework_mapper import (
@@ -87,7 +87,7 @@ SEV_COLOURS = {
 
 
 def _styles():
-    base = getSampleStyleSheet()
+    getSampleStyleSheet()
     return {
         "cover_title": ParagraphStyle("cover_title", fontSize=26, textColor=colors.white,
                                        spaceAfter=6, leading=32, fontName="Helvetica-Bold"),
@@ -191,7 +191,6 @@ def generate_audit_report(
     story.append(Paragraph("Executive Summary", S["section_head"]))
     story.append(HRFlowable(width=W, thickness=1, color=BLUE, spaceAfter=6))
 
-    risk_score = result.risk_score()
     compliance_score = calculate_compliance_score(compliance_report)
     posture_colour = RED_DARK if compliance_report.overall_posture == "non-compliant" else \
                      ORANGE if compliance_report.overall_posture == "partial" else GREEN_DARK
@@ -557,7 +556,7 @@ def generate_audit_report(
         story.append(Paragraph("Data Protection Impact Assessment (DPIA)", S["section_head"]))
         story.append(HRFlowable(width=W, thickness=1, color=TEAL, spaceAfter=6))
         story.append(Paragraph(
-            f"Required by: DPDP Act 2023 (Significant Data Fiduciaries)  -  ISO 42001 Clause 8.7  -  EU AI Act Article 9",
+            "Required by: DPDP Act 2023 (Significant Data Fiduciaries)  -  ISO 42001 Clause 8.7  -  EU AI Act Article 9",
             S["small"]
         ))
         story.append(Spacer(1, 3*mm))
@@ -587,8 +586,6 @@ def generate_audit_report(
         story.append(Spacer(1, 4*mm))
 
         for section in dpia.sections:
-            status_col = GREEN_DARK if section.status == "adequate" else \
-                         ORANGE if section.status == "gap" else MID_GREY
             status_label = {"adequate": "ADEQUATE", "gap": "GAP IDENTIFIED",
                             "not-assessed": "NOT ASSESSED"}.get(section.status, section.status.upper())
             story.append(Paragraph(

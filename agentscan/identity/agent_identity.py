@@ -192,7 +192,7 @@ def build_identity_graph(
         cat, label, access, scoped_by_default = CAPABILITY_CATEGORIES[cap]
         risk_notes = []
         if not scoped_by_default:
-            risk_notes.append(f"No inherent scoping -- requires explicit restriction")
+            risk_notes.append("No inherent scoping -- requires explicit restriction")
 
         node = IdentityNode(
             id=f"cap_{cap}",
@@ -272,7 +272,7 @@ def build_identity_graph(
         if not iam_scoped:
             findings.append(Finding(
                 id="ID-CLOUD-UNSCOPED",
-                title=f"Cloud API access is not IAM-scoped",
+                title="Cloud API access is not IAM-scoped",
                 severity=Severity.HIGH, confidence=ConfidenceLevel.MEDIUM,
                 scanner="identity_graph",
                 explanation=f"The agent has access to {provider} cloud APIs without explicit IAM role scoping. "

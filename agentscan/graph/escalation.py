@@ -20,8 +20,7 @@ already present in the agent's capability set.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from itertools import combinations
+from dataclasses import dataclass
 
 from agentscan.models import Finding, Evidence, Severity, ConfidenceLevel
 

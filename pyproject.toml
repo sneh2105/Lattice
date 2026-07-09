@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentscan"
-version = "0.4.9"
+version = "0.4.10"
 description = "Security scanner for AI agents, MCP servers, and AI supply chain artifacts — with attack graph engine and compliance reporting"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -50,6 +50,17 @@ Issues        = "https://github.com/sneh2105/agentscan/issues"
 [tool.ruff]
 target-version = "py310"
 line-length = 100
+
+[tool.ruff.lint]
+# E701/E702 (compact `if x: y` / `try: x; except: pass` one-liners) and E402
+# (module-level import not at top of file) are deliberately not enforced --
+# this codebase uses compact one-liner error handling consistently, and E402
+# fires on intentionally deferred imports (e.g. Flask imported lazily inside
+# create_app() so `import agentscan` doesn't require Flask unless the
+# dashboard is actually used -- see ui_server.py). All other default rules,
+# including every Pyflakes (F) bug-class check -- unused imports, undefined
+# names, redefinitions -- are enforced and must pass.
+ignore = ["E701", "E702", "E402"]
 
 [tool.mypy]
 python_version = "3.10"

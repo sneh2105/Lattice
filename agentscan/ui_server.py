@@ -1,8 +1,23 @@
 # -*- coding: utf-8 -*-
 """AgentScan Dashboard Backend - clean rewrite fixing all known bugs"""
 from __future__ import annotations
-import json, os, re, subprocess, sys, tempfile, threading, time
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import threading
+import time
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Flask is a real runtime dependency, but only for the dashboard --
+    # imported lazily inside create_app() so `import agentscan` doesn't
+    # require Flask to be installed unless the dashboard is actually used.
+    # This import is type-checking/linting only, never executed.
+    from flask import Flask
 
 
 # ---------------------------------------------------------------------------
@@ -601,7 +616,7 @@ def _get_doctor(path: str) -> dict:
 # Flask app
 # ---------------------------------------------------------------------------
 
-def create_app(version: str = "0.2.8") -> "Flask":
+def create_app(version: str = "0.2.8") -> Flask:
     from flask import Flask, request, jsonify, Response
     from agentscan.ui_html import get_dashboard_html
 
@@ -863,7 +878,8 @@ def create_app(version: str = "0.2.8") -> "Flask":
 
 
 def run_ui(port: int = 0, open_browser: bool = True):
-    import socket, logging
+    import socket
+    import logging
     if port == 0:
         with socket.socket() as s:
             s.bind(("", 0)); port = s.getsockname()[1]

@@ -13,14 +13,13 @@ Both operate on the same fixtures in examples/vulnerable_agents/ and
 examples/safe_agents/, located relative to the installed package so this
 works regardless of the user's current directory.
 """
-import agentscan._compat  # force UTF-8 before any print -- Windows fix
 import json
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from agentscan._compat import (
-    SYM_OK, SYM_FAIL, SYM_WARN, SYM_ARROW, SYM_BLOCK_FULL, SYM_BLOCK_EMPTY
+    SYM_OK, SYM_FAIL
 )
 
 

@@ -10,8 +10,6 @@ Graph and MCP CLI commands.
 
 from __future__ import annotations
 from agentscan import __version__
-import agentscan._compat  # force UTF-8 on Windows
-import json
 import sys
 from pathlib import Path
 
@@ -22,7 +20,7 @@ from agentscan.graph.engine import build_graph_from_scan, graph_paths_to_attack_
 from agentscan.graph.visualiser import render_terminal, render_html
 from agentscan.scanners.mcp_scanner_v2 import scan_mcp_v2
 from agentscan.scanners.mcp_trust_chain import MCPTrustChain, MCPTrustChainReport
-from agentscan.outputs.terminal import _col, BOLD, CYAN, RED, ORANGE, GREEN, DIM, YELLOW, RESET, BLUE
+from agentscan.outputs.terminal import _col, BOLD, CYAN, RED, ORANGE, GREEN, DIM, YELLOW
 from agentscan.models import Severity
 
 
@@ -79,7 +77,7 @@ def cmd_graph_agent(args):
             out_path = "agentscan_attack_graph.html"
         atomic_write_text(out_path, html, encoding="utf-8")
         abs_path = Path(out_path).resolve()
-        uri = abs_path.as_uri()
+        abs_path.as_uri()
         print(f"  Interactive graph -> {out_path}")
         if getattr(args, "open_browser", False):
             from agentscan.cli import _serve_and_open
@@ -252,8 +250,8 @@ def _render_chain_report(report: MCPTrustChainReport, args):
 
     # -- Cross-server attack paths ---------------------------------------------
     if report.cross_server_paths:
-        crit_paths = [p for p in report.cross_server_paths if p.severity == Severity.CRITICAL]
-        other_paths = [p for p in report.cross_server_paths if p.severity != Severity.CRITICAL]
+        [p for p in report.cross_server_paths if p.severity == Severity.CRITICAL]
+        [p for p in report.cross_server_paths if p.severity != Severity.CRITICAL]
 
         print(_col(BOLD + RED, f"  -- Cross-Server Attack Paths ({len(report.cross_server_paths)} found) " + "-"*30))
         print()
@@ -339,8 +337,6 @@ def _render_chain_report(report: MCPTrustChainReport, args):
             title="AgentScan -- Multi-Server Trust Chain"
         )
         # Pass actual GraphPath objects
-        from agentscan.graph.engine import graph_paths_to_attack_paths as gp2ap
-        from agentscan.graph.engine import AttackGraph
         actual_paths = report.unified_graph.find_attack_paths()
         html = render_html(report.unified_graph, actual_paths, "AgentScan -- Trust Chain")
         atomic_write_text(args.export_html, html, encoding="utf-8")
@@ -508,12 +504,8 @@ def cmd_graph_query(args):
     print(f"  {_col(DIM, result_q.explanation)}\n")
     if result_q.rows:
         # Print as simple table
-        keys = list(result_q.rows[0].keys())
+        list(result_q.rows[0].keys())
         for row in result_q.rows:
             vals = "  ".join(f"{k}={v}" for k, v in row.items())
             print(f"    {_col(CYAN, vals[:150])}")
     print()
-
-
-def add_query_examples_help():
-    return QUERY_EXAMPLES if 'QUERY_EXAMPLES' in dir() else []
