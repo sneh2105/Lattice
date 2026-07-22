@@ -210,7 +210,7 @@ def _scan_target(target: str) -> dict:
     out["mcp_manifests_found"] = (result.metadata or {}).get("mcp_manifests_found", [])
     out["dependency_files"] = (result.metadata or {}).get("dependency_files", {})
     if result.target != target:
-        out["cloned_from"] = target  # original GitHub URL, before clone-path substitution
+        out["cloned_from"] = target  # original repo URL, before clone-path substitution
 
     if "findings" in out:
         from agentscan.risk_register import compute_governed_score
@@ -312,20 +312,40 @@ def _scan_file(p: Path) -> dict:
     return {"error": "Unsupported file type: " + p.suffix + ". Supported: .py .yaml .yml .json", "type": "unknown"}
 
 
-def _clone_github_repo(github_url: str) -> str:
-    url = github_url.strip()
+# Hosts we know how to clone directly. Bitbucket uses "/src/<ref>/<path>"
+# where GitHub/GitLab use "/tree/<ref>/<path>", so the subdir-extraction
+# regex differs per host.
+_GIT_HOST_PATTERN = re.compile(r"(github[.]com|bitbucket[.]org|gitlab[.]com)/[^/]+/[^/\s]+", re.IGNORECASE)
+
+
+def _clone_git_repo(repo_url: str) -> str:
+    """Clone a GitHub, Bitbucket, or GitLab repo URL (optionally pointing at
+    a subfolder) and return the local path to scan."""
+    url = repo_url.strip()
     if not url.startswith("http"):
         url = "https://" + url
+
     subdir = None
-    m = re.search(r"/tree/[^/]+/(.+)", url)
-    if m:
-        subdir = m.group(1)
-        url = re.sub(r"/tree/.+", "", url)
+    if "bitbucket.org" in url.lower():
+        # Bitbucket subfolder URLs look like:
+        #   bitbucket.org/user/repo/src/main/path/to/dir
+        m = re.search(r"/src/[^/]+/(.+)", url)
+        if m:
+            subdir = m.group(1)
+            url = re.sub(r"/src/.+", "", url)
+    else:
+        # GitHub / GitLab subfolder URLs look like:
+        #   github.com/user/repo/tree/main/path/to/dir
+        m = re.search(r"/tree/[^/]+/(.+)", url)
+        if m:
+            subdir = m.group(1)
+            url = re.sub(r"/tree/.+", "", url)
+
     url = url.rstrip("/")
     if not url.endswith(".git"):
         url = url + ".git"
 
-    tmp = tempfile.mkdtemp(prefix="agentscan_gh_")
+    tmp = tempfile.mkdtemp(prefix="agentscan_git_")
     try:
         r = subprocess.run(["git", "clone", "--depth", "1", "--quiet", url, tmp],
                            capture_output=True, text=True, timeout=120)
@@ -339,11 +359,16 @@ def _clone_github_repo(github_url: str) -> str:
         raise RuntimeError("Clone timed out (120s). Try a smaller repo or a specific subdirectory.") from e
 
 
-def _clone_and_scan(github_url: str) -> dict:
+# Backwards-compatible alias -- kept because some call sites/tests still
+# refer to the old GitHub-specific name; behavior is now host-agnostic.
+_clone_github_repo = _clone_git_repo
+
+
+def _clone_and_scan(repo_url: str) -> dict:
     try:
-        scan_path = _clone_github_repo(github_url)
+        scan_path = _clone_git_repo(repo_url)
         result = _scan_directory(scan_path)
-        result["cloned_from"] = github_url
+        result["cloned_from"] = repo_url
         return result
     except Exception as e:
         return {"error": str(e), "type": "unknown"}
@@ -356,23 +381,24 @@ def _build_merged_result(target: str):
     call this, never call individual scanners directly. This is what keeps
     the dashboard, PDF, and graph all reporting the same numbers.
 
-    Handles: GitHub URLs, directories (source + all MCP manifests merged),
-    single .py files, single config files (agent vs MCP auto-detected),
-    live MCP URLs.
+    Handles: GitHub/Bitbucket/GitLab URLs, directories (source + all MCP
+    manifests merged), single .py files, single config files (agent vs MCP
+    auto-detected), live MCP URLs.
 
-    IMPORTANT: for GitHub URLs, the result's .target is set back to the
-    original stable URL (e.g. "github.com/user/repo"), not the ephemeral
-    temp-directory path used internally to actually read the files. Risk
-    acceptance is keyed on result.target -- if it were left as the temp
-    clone path, every fresh scan of the same repo would get a brand new
-    random tempdir and risk acceptance would never match between scans.
+    IMPORTANT: for git-hosted URLs, the result's .target is set back to the
+    original stable URL (e.g. "github.com/user/repo" or
+    "bitbucket.org/user/repo"), not the ephemeral temp-directory path used
+    internally to actually read the files. Risk acceptance is keyed on
+    result.target -- if it were left as the temp clone path, every fresh
+    scan of the same repo would get a brand new random tempdir and risk
+    acceptance would never match between scans.
     """
     from agentscan.models import ScanResult
     target = target.strip()
     original_target = target  # preserved across the clone-path substitution below
 
-    if re.search(r"github[.]com/[^/]+/[^/\s]+", target):
-        target = _clone_github_repo(target)
+    if _GIT_HOST_PATTERN.search(target):
+        target = _clone_git_repo(target)
 
     p = Path(target)
 

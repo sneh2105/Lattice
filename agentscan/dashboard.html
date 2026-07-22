@@ -163,7 +163,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   <div class="sb-block">
     <div class="sb-label">Scan</div>
     <div class="mode-tabs">
-      <button class="mode-tab active" onclick="setMode(this,'github')">GitHub</button>
+      <button class="mode-tab active" onclick="setMode(this,'github')">Git Repo</button>
       <button class="mode-tab" onclick="setMode(this,'file')">Upload File</button>
       <button class="mode-tab" onclick="setMode(this,'local')">Local Path</button>
       <button class="mode-tab" onclick="setMode(this,'url')">URL / MCP</button>
@@ -171,10 +171,10 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 
     <div id="m-github">
       <div class="inp-row">
-        <input class="txt-in" id="gh-in" placeholder="github.com/user/repo" onkeydown="if(event.key==='Enter')runScan()">
+        <input class="txt-in" id="gh-in" placeholder="github.com/user/repo or bitbucket.org/user/repo" onkeydown="if(event.key==='Enter')runScan()">
         <button class="icon-btn" onclick="pasteClipTo('gh-in')" title="Paste">&#128203;</button>
       </div>
-      <div class="hint">Any public repo or subfolder:<br>github.com/user/repo/tree/main/src/</div>
+      <div class="hint">Any public GitHub, Bitbucket, or GitLab repo or subfolder:<br>github.com/user/repo/tree/main/src/<br>bitbucket.org/user/repo/src/main/src/</div>
     </div>
 
     <div id="m-file" style="display:none">
@@ -342,7 +342,7 @@ function getTarget() {
 async function runScan() {
   var target = getTarget();
   if (!target) {
-    var hints = {github:'Paste a GitHub URL', file:'Select files using the picker', local:'Enter a file or folder path', url:'Enter an MCP server URL'};
+    var hints = {github:'Paste a GitHub, Bitbucket, or GitLab URL', file:'Select files using the picker', local:'Enter a file or folder path', url:'Enter an MCP server URL'};
     showErr(hints[mode] || 'Enter a target');
     return;
   }
@@ -414,7 +414,7 @@ function renderHist() {
 
 async function replayHist(i) {
   var h = scanHistory[i]; if (!h) return;
-  if (h.target.includes('github.com')) { $('gh-in').value=h.target; setMode(document.querySelector('[onclick*="github"]'),'github'); }
+  if (/github\.com|bitbucket\.org|gitlab\.com/.test(h.target)) { $('gh-in').value=h.target; setMode(document.querySelector('[onclick*="github"]'),'github'); }
   else { $('lp-in').value=h.target; setMode(document.querySelector('[onclick*="local"]'),'local'); onLocalChange(); }
   await runScan();
 }
@@ -813,7 +813,7 @@ function renderSupply(pkgs){
 // ── Health ─────────────────────────────────────────────────────────
 async function loadHealth(target){
   var el=$('health-content');if(!el)return;
-  var path=target&&target.includes('github.com')?'.':target;
+  var path=target&&/github\.com|bitbucket\.org|gitlab\.com/.test(target)?'.':target;
   try{
     var r=await fetch('/api/doctor',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:path||'.'})});
     var d=await r.json();
