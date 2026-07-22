@@ -50,7 +50,7 @@ class ComplianceReport:
     frameworks_covered: list[str]
     mappings: list[ComplianceMapping]
     control_summary: dict[str, int]   # framework -> number of controls implicated
-    overall_posture: str              # "compliant" | "partial" | "non-compliant"
+    overall_posture: str              # "compliant" (zero open findings/paths) | "partial" (any open findings, below the non-compliant thresholds) | "non-compliant" (2+ open CRITICAL or any open attack path)
     priority_gaps: list[str]          # top 3 things to fix for compliance
     resolved_mappings: list[ComplianceMapping] = None  # dispositioned findings, kept visible, not counted
 
@@ -413,6 +413,18 @@ def map_findings_to_controls(result: ScanResult) -> ComplianceReport:
     # and must be able to move the posture from NON-COMPLIANT toward
     # COMPLIANT -- otherwise a full triage pass changes nothing the reader
     # sees first, which is the exact confusion reported.
+    #
+    # IMPORTANT: "compliant" is reserved for the case where there is
+    # LITERALLY NOTHING open -- no findings, no attack paths. Previously,
+    # any scan with fewer than 3 open HIGH findings and no CRITICAL/attack
+    # path fell through to "compliant" even though the Finding-to-Control
+    # table right below it still listed open HIGH findings mapped to real
+    # regulatory obligations. That contradiction (green "COMPLIANT" badge
+    # sitting above a table of open findings) reads as the tool being wrong
+    # or misleading in an enterprise security review -- "compliant" is a
+    # word people put in board decks and audit trails, so it must mean
+    # zero open items, full stop. Any open finding, regardless of severity,
+    # now falls into "partial" instead.
     open_findings = disposition["open_findings"]
     open_paths = disposition["open_paths"]
     open_critical_count = sum(1 for f in open_findings if f.severity.value == "CRITICAL")
@@ -421,7 +433,7 @@ def map_findings_to_controls(result: ScanResult) -> ComplianceReport:
 
     if open_critical_count >= 2 or has_open_attack_paths:
         posture = "non-compliant"
-    elif open_critical_count == 1 or open_high_count >= 3:
+    elif open_critical_count == 1 or open_high_count >= 3 or open_findings:
         posture = "partial"
     else:
         posture = "compliant"
